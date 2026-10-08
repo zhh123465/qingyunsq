@@ -7,36 +7,50 @@ import {
   GridOutline, PeopleOutline, DocumentTextOutline,
   AlbumsOutline, ClipboardOutline, FlagOutline, ShieldCheckmarkOutline,
   SchoolOutline, SettingsOutline, ArrowBackOutline,
+  FolderOpenOutline, BookOutline, CalendarOutline, ChatbubbleEllipsesOutline,
+  MegaphoneOutline,
 } from '@vicons/ionicons5';
 import type { MenuOption } from 'naive-ui';
+import { useAuthStore } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
+const currentRole = computed(() => auth.user?.role || localStorage.getItem('role') || '');
 
-const menuOptions: MenuOption[] = [
-  { label: '仪表盘', key: '/admin', icon: renderIcon(GridOutline) },
-  { label: '用户管理', key: '/admin/users', icon: renderIcon(PeopleOutline) },
-  { label: '帖子管理', key: '/admin/posts', icon: renderIcon(DocumentTextOutline) },
-  { label: '空间管理', key: '/admin/spaces', icon: renderIcon(AlbumsOutline) },
-  { label: '审计日志', key: '/admin/audit-logs', icon: renderIcon(ClipboardOutline) },
-  { label: '举报管理', key: '/admin/reports', icon: renderIcon(FlagOutline) },
-  { label: '敏感词', key: '/admin/sensitive-words', icon: renderIcon(ShieldCheckmarkOutline) },
-  { label: '租户管理', key: '/admin/tenants', icon: renderIcon(SchoolOutline) },
-  { label: 'AI 配置', key: '/admin/ai-config', icon: renderIcon(SettingsOutline) },
-];
+const menuOptions = computed<MenuOption[]>(() => {
+  const base: MenuOption[] = [
+    { label: '仪表盘', key: '/admin', icon: renderIcon(GridOutline) },
+    { label: '用户管理', key: '/admin/users', icon: renderIcon(PeopleOutline) },
+    { label: '帖子管理', key: '/admin/posts', icon: renderIcon(DocumentTextOutline) },
+    { label: '评论管理', key: '/admin/comments', icon: renderIcon(ChatbubbleEllipsesOutline) },
+    { label: '空间管理', key: '/admin/spaces', icon: renderIcon(AlbumsOutline) },
+    { label: '资源管理', key: '/admin/resources', icon: renderIcon(FolderOpenOutline) },
+    { label: '笔记管理', key: '/admin/notes', icon: renderIcon(BookOutline) },
+    { label: '打卡管理', key: '/admin/checkin', icon: renderIcon(CalendarOutline) },
+    { label: '公告管理', key: '/admin/announcements', icon: renderIcon(MegaphoneOutline) },
+    { label: '举报管理', key: '/admin/reports', icon: renderIcon(FlagOutline) },
+    { label: '敏感词', key: '/admin/sensitive-words', icon: renderIcon(ShieldCheckmarkOutline) },
+    { label: '审计日志', key: '/admin/audit-logs', icon: renderIcon(ClipboardOutline) },
+    { label: 'AI 配置', key: '/admin/ai-config', icon: renderIcon(SettingsOutline) },
+  ];
+  // 租户管理仅 SUPER_ADMIN 可见（跨租户操作）
+  if (currentRole.value === 'SUPER_ADMIN') {
+    base.push({ label: '租户管理', key: '/admin/tenants', icon: renderIcon(SchoolOutline) });
+  }
+  return base;
+});
 
 const activeKey = computed(() => {
   const path = route.path;
   if (path === '/admin') return '/admin';
-  if (path.startsWith('/admin/users')) return '/admin/users';
-  if (path.startsWith('/admin/posts')) return '/admin/posts';
-  if (path.startsWith('/admin/spaces')) return '/admin/spaces';
-  if (path.startsWith('/admin/audit-logs')) return '/admin/audit-logs';
-  if (path.startsWith('/admin/reports')) return '/admin/reports';
-  if (path.startsWith('/admin/sensitive-words')) return '/admin/sensitive-words';
-  if (path.startsWith('/admin/tenants')) return '/admin/tenants';
-  if (path.startsWith('/admin/ai-config')) return '/admin/ai-config';
-  return '/admin';
+  const prefixes = [
+    '/admin/users', '/admin/posts', '/admin/comments', '/admin/spaces',
+    '/admin/resources', '/admin/notes', '/admin/checkin', '/admin/announcements',
+    '/admin/reports', '/admin/sensitive-words', '/admin/audit-logs',
+    '/admin/ai-config', '/admin/tenants',
+  ];
+  return prefixes.find((p) => path.startsWith(p)) || '/admin';
 });
 
 const collapsed = ref(false);

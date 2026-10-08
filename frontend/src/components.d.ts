@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AnnouncementBanner: typeof import('./components/AnnouncementBanner.vue')['default']
     AppNotify: typeof import('./components/AppNotify.vue')['default']
     BackToTopButton: typeof import('./components/BackToTopButton.vue')['default']
     LanguageSwitcher: typeof import('./components/LanguageSwitcher.vue')['default']
@@ -15,7 +16,7 @@ declare module 'vue' {
     NIcon: typeof import('naive-ui')['NIcon']
     NMessageProvider: typeof import('naive-ui')['NMessageProvider']
     NNotificationProvider: typeof import('naive-ui')['NNotificationProvider']
-    NTag: typeof import('naive-ui')['NTag']
+    NSpin: typeof import('naive-ui')['NSpin']
     PostAiCardLine: typeof import('./components/PostAiCardLine.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

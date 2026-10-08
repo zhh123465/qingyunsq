@@ -18,6 +18,12 @@ public class AiRateLimitProperties {
     /** 每用户每分钟最大 AI 调用次数 */
     private int perUserPerMin = 5;
 
+    /** Pro 模型每用户每小时最大请求次数 */
+    private int proPerUserPerHour = 10;
+
+    /** 普通模型每用户每小时最大请求次数 */
+    private int normalPerUserPerHour = 20;
+
     /** 每租户每天最大 AI 调用次数 */
     private int perTenantPerDay = 1000;
 }

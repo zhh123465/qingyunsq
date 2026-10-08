@@ -1,0 +1,13 @@
+{
+  "name": "小青知识库",
+  "short_name": "小青知识库",
+  "theme_color": "#18a058",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/resources",
+  "description": "个人资源、工具、软件与学习笔记整理站",
+  "icons": [
+    { "src": "/pwa-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/pwa-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

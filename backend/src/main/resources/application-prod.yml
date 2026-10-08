@@ -43,14 +43,10 @@ logging:
     com.campusforum: INFO
 
 ai:
-  provider: ${AI_PROVIDER:mock}
-  base-url: ${AI_BASE_URL:https://api.deepseek.com}
-  api-key: ${AI_API_KEY:}
-  model: ${AI_MODEL:deepseek-v4-flash}
   providers:
     deepseek:
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
-      api-key: ${DEEPSEEK_API_KEY:${AI_API_KEY:}}
+      api-key: ${DEEPSEEK_API_KEY:}
     mimo:
       base-url: ${MIMO_BASE_URL:https://api.xiaomimimo.com/v1}
       api-key: ${MIMO_API_KEY:}
@@ -83,6 +79,8 @@ security:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
   upload:
     real-mime-check: ${UPLOAD_REAL_MIME_CHECK:true}
+    # 审核流（2026-07-13）：允许任意扩展名（含可执行程序）上传进待审核队列，人工审核甄别
+    allow-any-extension: ${UPLOAD_ALLOW_ANY_EXTENSION:true}
     allowed-asset-hosts: ${ALLOWED_ASSET_HOSTS}
     self-hosts:
       - ${STORAGE_OSS_HOST:}
@@ -93,6 +91,30 @@ security:
 # ---------- WebSocket 跨域来源（生产必填，逗号分隔） ----------
 ws:
   allowed-origins: ${WS_ALLOWED_ORIGINS}
+
+# ---------- 第三方社交登录（GitHub 授权码流程，2026-07-12 接通） ----------
+# GitHub 属海外 API，生产经宿主机代理出站（与 note-sync 同机制）。
+# 未配置 client-id/secret/redirect-uri 时前端按钮自动降级为"暂未开放"。
+social:
+  github:
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    redirect-uri: ${GITHUB_REDIRECT_URI:}
+  proxy-host: ${SOCIAL_PROXY_HOST:}
+  proxy-port: ${SOCIAL_PROXY_PORT:0}
+
+# ---------- 外部笔记同步（管理端触发；VitePress / cnblogs / 单页） ----------
+note-sync:
+  proxy:
+    host: ${NOTE_SYNC_PROXY_HOST:}
+    port: ${NOTE_SYNC_PROXY_PORT:0}
+  timeout-ms: ${NOTE_SYNC_TIMEOUT_MS:15000}
+  max-pages: ${NOTE_SYNC_MAX_PAGES:50}
+  allowed-hosts: ${NOTE_SYNC_ALLOWED_HOSTS:blog-wheat-one-34.vercel.app,www.cnblogs.com}
+
+# ---------- 邮件（资源审核提醒等通知邮件拼接后台链接用） ----------
+email:
+  site-base-url: ${EMAIL_SITE_BASE_URL:https://www.qingyunsq.top}
 
 # ---------- 管理端点（生产仅暴露 health） ----------
 management:

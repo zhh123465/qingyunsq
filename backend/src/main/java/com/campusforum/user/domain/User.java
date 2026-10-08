@@ -33,4 +33,5 @@ public class User extends BaseEntity {
     private LocalDateTime resetTokenExpires;
     private String muteSettings;
     private String tagSubscriptions;
+    private Integer welcomeKbSeeded;
 }

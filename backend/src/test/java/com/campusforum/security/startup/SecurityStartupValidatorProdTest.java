@@ -194,6 +194,17 @@ class SecurityStartupValidatorProdTest {
     }
 
     @Test
+    @DisplayName("exclude_wechatLogin_throws：rate-limit.exclude-patterns 含微信登录 → 抛错")
+    void exclude_wechatLogin_throws() {
+        rateLimitProps.setExcludePatterns(List.of("/api/v1/auth/wechat-login"));
+
+        assertThatThrownBy(() -> newValidator().run(args))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("敏感路径不可被加入 rate-limit.exclude-patterns")
+                .hasMessageContaining("/api/v1/auth/wechat-login");
+    }
+
+    @Test
     @DisplayName("exclude_authGlob_throws：含 /api/v1/auth/** 这种祖先 pattern 也应抛")
     void exclude_authGlob_throws() {
         rateLimitProps.setExcludePatterns(List.of("/api/v1/auth/**"));

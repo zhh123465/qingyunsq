@@ -43,4 +43,12 @@ public class LogEmailService implements EmailService {
         log.warn("  重置令牌 : {}", resetToken);
         log.warn("=================================================");
     }
+
+    @Override
+    public void sendNotice(String toEmail, String subject, String htmlContent) {
+        log.warn("====== [DEV-MOCK 邮件] 通知（未真实发送）======");
+        log.warn("  收件人 : {}", toEmail);
+        log.warn("  主题   : {}", subject);
+        log.warn("===============================================");
+    }
 }

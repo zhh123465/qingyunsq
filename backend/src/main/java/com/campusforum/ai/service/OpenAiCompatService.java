@@ -52,7 +52,8 @@ public class OpenAiCompatService implements AiService {
     }
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    // ObjectMapper 线程安全且无实例级配置，按类共享单例避免每个租户客户端各建一份
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
     private final String apiKey;
     private final String model;
@@ -68,14 +69,13 @@ public class OpenAiCompatService implements AiService {
      *                {@link com.campusforum.infra.security.PrivateNetworkValidator}
      *                在调用前拒绝）
      * @param apiKey  上游 AI 服务的明文 API Key（已由租户密钥库解密；不会落盘 / 不会进日志）
-     * @param model   模型名（如 {@code deepseek-chat}），为空时回退默认值
+     * @param model   模型名（如 {@code deepseek-v4-flash}），为空时回退默认值
      */
     OpenAiCompatService(String baseUrl, String apiKey, String model) {
         this.restTemplate = createRestTemplate();
-        this.objectMapper = new ObjectMapper();
         this.baseUrl = normalizeBaseUrl(baseUrl);
         this.apiKey = apiKey;
-        this.model = (model == null || model.isBlank()) ? "deepseek-chat" : model;
+        this.model = (model == null || model.isBlank()) ? "deepseek-v4-flash" : model;
     }
 
     @Override

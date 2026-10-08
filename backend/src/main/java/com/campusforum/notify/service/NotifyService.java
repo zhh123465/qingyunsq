@@ -4,7 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.campusforum.notify.domain.Notification;
 import com.campusforum.notify.dto.NotificationVO;
 import com.campusforum.notify.mapper.NotificationMapper;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.BroadcastMessage;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.dto.PublicUserVO;
 import com.campusforum.user.mapper.UserMapper;
@@ -29,7 +30,7 @@ public class NotifyService {
 
     private final NotificationMapper notificationMapper;
     private final UserMapper userMapper;
-    private final SessionRegistry sessionRegistry;
+    private final WebSocketBroadcaster webSocketBroadcaster;
 
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
@@ -69,7 +70,7 @@ public class NotifyService {
             payloadMap.put("title", title != null ? title : "");
             payloadMap.put("content", content != null ? content : "");
             String payload = jsonMapper.writeValueAsString(payloadMap);
-            sessionRegistry.sendToUser(receiverId, payload);
+            webSocketBroadcaster.broadcast(new BroadcastMessage(receiverId, type, payload));
         } catch (Exception ignored) {
             // WebSocket push is best-effort
         }

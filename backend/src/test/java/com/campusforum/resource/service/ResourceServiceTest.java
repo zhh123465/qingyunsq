@@ -92,6 +92,8 @@ class ResourceServiceTest {
         assertThat(r.getMajor()).isEqualTo("软件工程");
         assertThat(r.getDownloadCount()).isEqualTo(0);
         assertThat(r.getUploader().getId()).isEqualTo(userId1);
+        // 审核流（2026-07-13）：无登录态（非管理员）上传默认进入待审核
+        assertThat(r.getStatus()).isEqualTo(2);
     }
 
     @Test
@@ -102,10 +104,13 @@ class ResourceServiceTest {
 
         UploadResourceRequest req = new UploadResourceRequest();
         ResourceVO uploaded = resourceService.upload(userId1, file, req);
+        // 审核流：待审核资源对无登录态不可见，先审核通过再断言公开可读
+        resourceService.approve(uploaded.getId(), userId1);
 
         ResourceVO found = resourceService.getById(uploaded.getId());
         assertThat(found.getFileName()).isEqualTo("note.docx");
         assertThat(found.getFileSize()).isEqualTo(("Word content " + ts).length());
+        assertThat(found.getStatus()).isEqualTo(1);
     }
 
     @Test
@@ -116,6 +121,7 @@ class ResourceServiceTest {
 
         UploadResourceRequest req = new UploadResourceRequest();
         ResourceVO uploaded = resourceService.upload(userId1, file, req);
+        resourceService.approve(uploaded.getId(), userId1);
 
         // 下载应增加计数
         InputStream is = resourceService.download(uploaded.getId());
@@ -133,7 +139,8 @@ class ResourceServiceTest {
 
         UploadResourceRequest req = new UploadResourceRequest();
         req.setCollege("数学学院");
-        resourceService.upload(userId1, file1, req);
+        ResourceVO uploaded = resourceService.upload(userId1, file1, req);
+        resourceService.approve(uploaded.getId(), userId1);
 
         List<ResourceVO> list = resourceService.list(null, null, null, null, null, 20);
         assertThat(list).isNotEmpty();

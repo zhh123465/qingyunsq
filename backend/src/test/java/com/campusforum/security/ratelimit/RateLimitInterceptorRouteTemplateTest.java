@@ -228,6 +228,24 @@ class RateLimitInterceptorRouteTemplateTest {
     }
 
     @Test
+    @DisplayName("微信登录路径即便被加入 exclude-patterns 也不被绕过")
+    void excludePath_butWechatLoginSensitive_notSkipped() throws Exception {
+        properties.setExcludePatterns(List.of("/api/v1/auth/wechat-login"));
+
+        when(routeTemplateExtractor.extract(any()))
+                .thenReturn(new RouteTemplateExtractor.ExtractResult("/api/v1/auth/wechat-login", true));
+        when(rateLimiter.tryAcquireFailClosed(anyString(), anyInt(), anyInt())).thenReturn(0L);
+
+        boolean ok = interceptor.preHandle(
+                req("POST", "/api/v1/auth/wechat-login", "/api/v1/auth/wechat-login"),
+                new MockHttpServletResponse(), new Object());
+
+        assertThat(ok).isTrue();
+        verify(rateLimiter, atLeastOnce())
+                .tryAcquireFailClosed(anyString(), anyInt(), anyInt());
+    }
+
+    @Test
     @DisplayName("非敏感路径命中 exclude-patterns 时直接放行，rateLimiter 不被调用")
     void excludePath_nonSensitive_skipped() throws Exception {
         properties.setExcludePatterns(List.of("/actuator/**"));

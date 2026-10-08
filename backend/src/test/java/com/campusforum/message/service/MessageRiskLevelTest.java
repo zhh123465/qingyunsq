@@ -3,7 +3,7 @@ package com.campusforum.message.service;
 import com.campusforum.infra.sanitize.HtmlSanitizerService;
 import com.campusforum.message.domain.Message;
 import com.campusforum.message.mapper.MessageMapper;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.sensitive.service.SensitiveWordService;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.mapper.UserMapper;
@@ -46,7 +46,7 @@ class MessageRiskLevelTest {
     private UserMapper userMapper;
 
     @Mock
-    private SessionRegistry sessionRegistry;
+    private WebSocketBroadcaster webSocketBroadcaster;
 
     @Mock
     private SensitiveWordService sensitiveWordService;
@@ -59,7 +59,7 @@ class MessageRiskLevelTest {
     @BeforeEach
     void setUp() {
         messageService = new MessageService(
-                messageMapper, userMapper, sessionRegistry, objectMapper,
+                messageMapper, userMapper, webSocketBroadcaster, objectMapper,
                 htmlSanitizerService, sensitiveWordService);
 
         // 默认 mock：sender / receiver 存在，避免业务前置校验中断

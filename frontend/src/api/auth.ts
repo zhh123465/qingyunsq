@@ -83,6 +83,25 @@ export async function loginWithWechatCode(code: string): Promise<LoginResponse> 
   return res.data;
 }
 
+/** GitHub 登录第一步：取授权页 URL（后端未配置 client id/secret 时 enabled=false）。 */
+export async function getGithubAuthorizeUrl(): Promise<{ enabled: boolean; url?: string }> {
+  const res = await request<{ enabled: boolean; url?: string }>({
+    method: 'GET',
+    url: '/auth/github/authorize-url',
+  });
+  return res.data;
+}
+
+/** GitHub 登录第二步：用回调携带的 code/state 完成登录。 */
+export async function loginWithGithubCode(code: string, state: string): Promise<LoginResponse> {
+  const res = await request<LoginResponse>({
+    method: 'POST',
+    url: '/auth/github-login',
+    data: { code, state },
+  });
+  return res.data;
+}
+
 export async function sendEmailCode(email: string, scene: 'REGISTER' | 'LOGIN' | 'RESET_PASSWORD'): Promise<{ message: string }> {
   const res = await request<{ message: string }>({
     method: 'POST',

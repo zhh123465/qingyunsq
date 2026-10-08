@@ -15,6 +15,9 @@ public class EmailProperties {
     /** 密码重置链接基础 URL（前端页面地址） */
     private String resetLinkBase = "http://localhost:3000/reset-password";
 
+    /** 站点基础 URL（用于拼接后台直达链接等），末尾不带斜杠 */
+    private String siteBaseUrl = "http://localhost:3000";
+
     /** 应用名称（显示在邮件中） */
     private String appName = "CampusForum";
 

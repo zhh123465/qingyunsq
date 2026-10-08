@@ -50,9 +50,27 @@ backend/.jqwik-database
 backend/.full-test.log
 backend/_ust.log
 
+# ===== 运维工具 / 二进制包（不属于项目源码，勿入库）=====
+# 1Panel 等运维面板安装包与解压目录、各类压缩归档，避免被误 git add 提交进仓库
+1panel*
+# 根目录的 quick_start.sh 实为 1Panel 官方安装脚本，不是本项目脚本
+/quick_start.sh
+*.tar.gz
+*.tgz
+*.zip
+
+# ===== TLS 私钥 / 证书（生产机密，绝不入库）=====
+# deploy/nginx/ssl/ 下是 qingyunsq.top 的证书与**私钥**，仓库公开，泄漏即等于站点被冒充
+deploy/nginx/ssl/
+*.pem
+*.key
+
 # ===== Misc =====
 # 误放在仓库根目录的 npm 锁文件（真正的锁文件在 frontend/）
 /package-lock.json
 # 本地临时调试截图
 ai配置截图.png
 *配置截图.png
+# 根目录散落的临时截图（UUID 命名）与文档 PDF
+/*.png
+/*.pdf

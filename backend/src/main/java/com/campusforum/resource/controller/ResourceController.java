@@ -52,6 +52,15 @@ public class ResourceController {
         return R.ok(resourceService.list(spaceId, college, major, course, cursor, limit));
     }
 
+    /** 我的上传：本人全部状态（含待审核/已驳回）的资源，追踪审核进度用。 */
+    @GetMapping("/mine")
+    public R<List<ResourceVO>> mine(
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "20") int limit) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(resourceService.listMine(userId, cursor, limit));
+    }
+
     @GetMapping("/{id}")
     public R<ResourceVO> getById(@PathVariable Long id) {
         return R.ok(resourceService.getById(id));
@@ -81,9 +90,9 @@ public class ResourceController {
     public void download(@PathVariable Long id,
                          @RequestParam(value = "sig", required = false) String signature,
                          HttpServletResponse response) {
-        verifySignatureOrLogin(id, "download", signature);
-        String fileName = resourceService.getFileName(id);
-        InputStream is = resourceService.download(id);
+        Long sigUserId = verifySignatureOrLogin(id, "download", signature);
+        String fileName = resourceService.getFileName(id, sigUserId);
+        InputStream is = resourceService.download(id, sigUserId);
 
         String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
         response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
@@ -101,9 +110,9 @@ public class ResourceController {
     public void preview(@PathVariable Long id,
                         @RequestParam(value = "sig", required = false) String signature,
                         HttpServletResponse response) {
-        verifySignatureOrLogin(id, "preview", signature);
-        ResourceVO resource = resourceService.getById(id);
-        String fileType = resource.getFileType().toLowerCase();
+        Long sigUserId = verifySignatureOrLogin(id, "preview", signature);
+        ResourceVO resource = resourceService.getById(id, sigUserId);
+        String fileType = resource.getFileType() == null ? "" : resource.getFileType().toLowerCase();
 
         // 文件大小检查
         if (resource.getFileSize() > previewProperties.getMaxPreviewSize()) {
@@ -119,7 +128,13 @@ public class ResourceController {
             // 而是返回 JSON 描述，由前端在浏览器内自行打开预览服务。
             // 这样后端不再发起到第三方预览服务的可达请求，避免预览服务历史漏洞被 SSRF 利用。
             if (isOfficeFile(fileType)) {
-                long userId = StpUtil.getLoginIdAsLong();
+                // 该接口对游客开放（带合法 sig 直链或 PUBLIC 资源），未登录时不能直接
+                // getLoginIdAsLong()（会抛 NotLoginException → 500）。游客用 0 作为匿名占位，
+                // 与 WsTicketService / TenantBindingCheckInterceptor 的占位约定一致。
+                // 审核流：sig 直链场景优先继承一层签名内嵌的 userId，否则上传者预览自己
+                // 待审核 office 文档时，二层下载签名会以游客身份被可见性校验拒绝。
+                long userId = sigUserId != null ? sigUserId
+                        : (StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : 0L);
                 SignedUrlService.SignedToken sig = signedUrlService.sign(userId, "RESOURCE", id, "download");
                 String downloadPath = "/api/v1/resources/" + id + "/download?sig="
                         + URLEncoder.encode(sig.token(), StandardCharsets.UTF_8);
@@ -145,7 +160,7 @@ public class ResourceController {
         }
 
         // PDF 和图片：直接流式返回
-        InputStream is = resourceService.preview(id);
+        InputStream is = resourceService.preview(id, sigUserId);
         response.setContentType(contentType);
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "inline");
         response.setHeader("X-Content-Type-Options", "nosniff");
@@ -175,19 +190,24 @@ public class ResourceController {
      *
      * <p>安全加固：签名失败时统一抛 {@code RESOURCE_NOT_FOUND}（404），与无权访问场景一致，
      * 避免攻击者通过响应区分"签名过期" vs "资源不存在"。</p>
+     *
+     * @return 签名直链场景返回 token 内嵌的签发用户 ID（审核流按此做可见性校验，
+     *         否则上传者打开自己待审核资源的直链会被按游客拒绝）；登录态场景返回 null，
+     *         由 service 层按 StpUtil 上下文校验。
      */
-    private void verifySignatureOrLogin(long resourceId, String action, String signature) {
+    private Long verifySignatureOrLogin(long resourceId, String action, String signature) {
         if (signature != null && !signature.isBlank()) {
             SignedUrlService.Verified verified = signedUrlService.verify(signature, "RESOURCE", resourceId, action);
             if (verified == null) {
                 throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
             }
-            return;
+            return verified.userId();
         }
         if (!StpUtil.isLogin()) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         // 已登录路径仍然需要走 service 的可见性校验，由 download/preview 内部触发
+        return null;
     }
 
     private String getPreviewContentType(String fileType) {
@@ -197,6 +217,15 @@ public class ResourceController {
             case "png" -> "image/png";
             case "gif" -> "image/gif";
             case "webp" -> "image/webp";
+            case "bmp" -> "image/bmp";
+            case "mp4" -> "video/mp4";
+            case "webm" -> "video/webm";
+            case "mov" -> "video/quicktime";
+            case "avi" -> "video/x-msvideo";
+            case "mp3" -> "audio/mpeg";
+            case "wav" -> "audio/wav";
+            case "m4a" -> "audio/mp4";
+            case "ogg" -> "audio/ogg";
             case "md", "markdown" -> "text/markdown; charset=UTF-8";
             default -> null;
         };

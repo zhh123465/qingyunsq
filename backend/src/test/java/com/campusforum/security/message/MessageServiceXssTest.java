@@ -4,7 +4,7 @@ import com.campusforum.infra.sanitize.HtmlSanitizerService;
 import com.campusforum.message.domain.Message;
 import com.campusforum.message.mapper.MessageMapper;
 import com.campusforum.message.service.MessageService;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.sensitive.service.SensitiveWordService;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.mapper.UserMapper;
@@ -44,9 +44,9 @@ class MessageServiceXssTest {
     @Mock
     private UserMapper userMapper;
 
-    /** WebSocket 会话注册表：本用例不关心推送结果，mock 即可。 */
+    /** WebSocket 广播器：本用例不关心推送结果，mock 即可。 */
     @Mock
-    private SessionRegistry sessionRegistry;
+    private WebSocketBroadcaster webSocketBroadcaster;
 
     /**
      * 敏感词服务（任务 T8.10）：本用例不关心风险等级，mock 返回 0（安全）。
@@ -65,7 +65,7 @@ class MessageServiceXssTest {
 
     /**
      * 被测对象。Lombok {@code @RequiredArgsConstructor} 生成的构造器顺序
-     * 与字段声明顺序一致：messageMapper / userMapper / sessionRegistry /
+     * 与字段声明顺序一致：messageMapper / userMapper / webSocketBroadcaster /
      * objectMapper / htmlSanitizerService。
      */
     private MessageService messageService;
@@ -74,7 +74,7 @@ class MessageServiceXssTest {
     void setUp() {
         // 手动构造，避免 @InjectMocks 对 final 字段顺序的猜测错误
         messageService = new MessageService(
-                messageMapper, userMapper, sessionRegistry, objectMapper, htmlSanitizerService, sensitiveWordService);
+                messageMapper, userMapper, webSocketBroadcaster, objectMapper, htmlSanitizerService, sensitiveWordService);
     }
 
     @Test

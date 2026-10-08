@@ -1,30 +1,88 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NCard, NButton, NTag, NSpace, NSpin, NEmpty, useMessage } from 'naive-ui';
-import { getResourceById, getDownloadUrl, deleteResource } from '@/api/resources';
+import { NAlert, NCard, NButton, NTag, NSpace, NSpin, NEmpty, useMessage } from 'naive-ui';
+import {
+  deleteResource,
+  getDownloadUrl,
+  getOfficePreviewUrl,
+  getPreviewUrl,
+  getResourceById,
+  getResourcePreviewText,
+} from '@/api/resources';
 import { useAuthStore } from '@/stores/auth';
-import type { ResourceVO } from '@/types/resource';
+import { useTheme } from '@/composables/useTheme';
+import type { ResourcePreviewVO, ResourceVO } from '@/types/resource';
+import { getResourcePreviewKind } from '@/utils/resource-preview';
 
 const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const authStore = useAuthStore();
+const { isDarkTheme } = useTheme();
 
 const resource = ref<ResourceVO | null>(null);
 const loading = ref(true);
+const previewLoading = ref(false);
+const previewText = ref<ResourcePreviewVO | null>(null);
+const previewError = ref('');
+const previewUrl = ref('');
 const currentUserId = authStore.user?.id;
 const isUploader = () => resource.value?.uploaderId === currentUserId;
 
+const markdownSrcdoc = computed(() => {
+  if (!previewText.value) return '';
+  const bgColor = isDarkTheme.value ? '#111827' : '#ffffff';
+  const textColor = isDarkTheme.value ? '#f3f4f6' : '#07111f';
+  const preBgColor = isDarkTheme.value ? '#1f2937' : '#f6f8fb';
+  const blockquoteBorder = isDarkTheme.value ? '#00f5d4' : '#00d8bf';
+  const blockquoteColor = isDarkTheme.value ? '#9ca3af' : '#64748b';
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;padding:20px;font-family:Inter,Segoe UI,sans-serif;color:${textColor};background:${bgColor};line-height:1.75}
+pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}pre{padding:14px;background:${preBgColor};border-radius:8px;white-space:pre-wrap}
+blockquote{margin:0 0 12px;padding-left:12px;color:${blockquoteColor};border-left:3px solid ${blockquoteBorder}}
+</style></head><body>${renderMarkdown(previewText.value.content)}</body></html>`;
+});
+
 async function load() {
   loading.value = true;
+  previewText.value = null;
+  previewError.value = '';
+  previewUrl.value = '';
+  previewLoading.value = false;
   try {
     const id = Number(route.params.id);
     resource.value = await getResourceById(id);
+    await loadPreview();
   } catch {
     resource.value = null;
   }
   loading.value = false;
+}
+
+async function loadPreview() {
+  if (!resource.value) return;
+  previewText.value = null;
+  previewError.value = '';
+  previewUrl.value = '';
+
+  const kind = getPreviewKind(resource.value);
+  if (kind === 'unsupported') return;
+
+  previewLoading.value = true;
+  try {
+    if (kind === 'text') {
+      previewText.value = await getResourcePreviewText(resource.value.id);
+    } else if (kind === 'office') {
+      previewUrl.value = await getOfficePreviewUrl(resource.value.id);
+    } else {
+      previewUrl.value = await getPreviewUrl(resource.value.id);
+    }
+  } catch {
+    previewError.value = kind === 'office' ? 'Office 预览服务链接加载失败，可先下载查看' : '预览内容加载失败';
+  } finally {
+    previewLoading.value = false;
+  }
 }
 
 async function handleDownload() {
@@ -60,6 +118,21 @@ function formatSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+function getPreviewKind(item: ResourceVO) {
+  return getResourcePreviewKind(item);
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderMarkdown(source: string) {
+  return escapeHtml(source)
+    .split(/\n{2,}/)
+    .map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
 onMounted(load);
 </script>
 
@@ -72,13 +145,38 @@ onMounted(load);
     </template>
 
     <template v-else-if="resource">
+      <NAlert
+        v-if="resource.status === 2"
+        type="warning"
+        class="review-banner"
+        :show-icon="true"
+      >
+        该资源正在等待管理员审核，审核通过后才对其他用户可见。
+      </NAlert>
+      <NAlert
+        v-else-if="resource.status === 3"
+        type="error"
+        class="review-banner"
+        :show-icon="true"
+      >
+        该资源未通过审核{{ resource.reviewReason ? `：${resource.reviewReason}` : '' }}。可删除后修改重新上传。
+      </NAlert>
+      <NAlert
+        v-else-if="resource.status === 0"
+        type="error"
+        class="review-banner"
+        :show-icon="true"
+      >
+        该资源已被管理员隐藏，仅你自己可见。
+      </NAlert>
+
       <NCard class="resource-info">
         <div class="info-header">
           <div>
             <h2>{{ resource.fileName }}</h2>
             <NSpace>
               <NTag size="small">
-                {{ resource.fileType.toUpperCase() }}
+                {{ resource.fileType ? resource.fileType.toUpperCase() : '未知' }}
               </NTag>
               <NTag
                 v-if="resource.visibility === 'PUBLIC'"
@@ -181,6 +279,87 @@ onMounted(load);
           </NTag>
         </div>
 
+        <section class="preview-section">
+          <div class="preview-title">
+            <span>文件预览</span>
+            <NButton
+              quaternary
+              size="small"
+              @click="loadPreview"
+            >
+              刷新预览
+            </NButton>
+          </div>
+          <div
+            v-if="previewLoading"
+            class="preview-state"
+          >
+            <NSpin />
+          </div>
+          <NAlert
+            v-else-if="previewError"
+            type="error"
+            :show-icon="false"
+          >
+            {{ previewError }}
+          </NAlert>
+          <iframe
+            v-else-if="getPreviewKind(resource) === 'pdf'"
+            class="preview-frame"
+            :src="previewUrl"
+            title="PDF 预览"
+          />
+          <img
+            v-else-if="getPreviewKind(resource) === 'image'"
+            class="preview-image"
+            :src="previewUrl"
+            :alt="resource.fileName"
+          >
+          <iframe
+            v-else-if="getPreviewKind(resource) === 'text' && previewText"
+            class="markdown-frame"
+            :srcdoc="markdownSrcdoc"
+            title="文本预览"
+          />
+          <div
+            v-else-if="getPreviewKind(resource) === 'office' && previewUrl"
+            class="office-preview"
+          >
+            <iframe
+              class="preview-frame"
+              :src="previewUrl"
+              title="Office 预览"
+            />
+            <NAlert
+              type="info"
+              :show-icon="false"
+            >
+              旧版 Office 文件依赖外部预览服务；若无法加载，可直接下载查看。
+            </NAlert>
+          </div>
+          <video
+            v-else-if="getPreviewKind(resource) === 'video'"
+            class="preview-media"
+            :src="previewUrl"
+            controls
+            preload="metadata"
+          />
+          <audio
+            v-else-if="getPreviewKind(resource) === 'audio'"
+            class="preview-audio"
+            :src="previewUrl"
+            controls
+            preload="metadata"
+          />
+          <NAlert
+            v-else
+            type="info"
+            :show-icon="false"
+          >
+            当前格式暂不支持在线预览，可直接下载查看。
+          </NAlert>
+        </section>
+
         <NButton
           type="primary"
           block
@@ -201,6 +380,10 @@ onMounted(load);
 </template>
 
 <style scoped lang="scss">
+.review-banner {
+  margin-bottom: 16px;
+}
+
 .detail-page {
   min-height: calc(100vh - 112px);
   padding: 8px 0 40px;
@@ -293,6 +476,64 @@ onMounted(load);
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 22px;
+}
+
+.preview-section {
+  margin: 22px 0;
+}
+
+.preview-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-weight: 800;
+}
+
+.preview-state {
+  padding: 40px;
+  text-align: center;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: var(--cf-bg-soft);
+}
+
+.preview-frame,
+.markdown-frame {
+  width: 100%;
+  height: min(64vh, 720px);
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: var(--cf-bg-base);
+}
+
+.preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 64vh;
+  margin: 0 auto;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.preview-media {
+  width: 100%;
+  max-height: 64vh;
+  border: 1px solid var(--cf-border);
+  border-radius: 10px;
+  background: #000;
+}
+
+.preview-audio {
+  width: 100%;
+  min-height: 48px;
+}
+
+.office-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .download-btn {

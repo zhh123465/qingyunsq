@@ -29,6 +29,7 @@ public class AuthController {
 
     private final UserService userService;
     private final WsTicketService wsTicketService;
+    private final com.campusforum.social.service.GithubLoginService githubLoginService;
 
     @PostMapping("/register")
     public R<UserVO> register(@Valid @RequestBody RegisterRequest req) {
@@ -66,6 +67,29 @@ public class AuthController {
                 "token", token,
                 "tenantId", user.getTenantId(),
                 "tenantCode", user.getTenantCode(),
+                "user", user
+        ));
+    }
+
+    /**
+     * GitHub 登录第一步：返回授权页 URL（含防 CSRF 的 state，Redis 10 分钟 TTL）。
+     * 前端 window.location 跳转该 URL，GitHub 授权后 302 回 redirect_uri?code=..&state=..
+     */
+    @GetMapping("/github/authorize-url")
+    public R<Map<String, Object>> githubAuthorizeUrl() {
+        if (!githubLoginService.isConfigured()) {
+            return R.ok(Map.of("enabled", false));
+        }
+        return R.ok(Map.of("enabled", true, "url", githubLoginService.createAuthorizeUrl()));
+    }
+
+    /** GitHub 登录第二步：校验 state + 授权码换 token + 建号/登录。 */
+    @PostMapping("/github-login")
+    public R<Map<String, Object>> githubLogin(@Valid @RequestBody com.campusforum.user.dto.GithubLoginRequest req) {
+        UserVO user = githubLoginService.login(req.getCode(), req.getState());
+        String token = StpUtil.getTokenValue();
+        return R.ok(Map.of(
+                "token", token,
                 "user", user
         ));
     }

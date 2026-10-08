@@ -73,6 +73,7 @@ public class MimeTypeValidator {
             Map.entry("png",  Set.of("image/png")),
             Map.entry("gif",  Set.of("image/gif")),
             Map.entry("webp", Set.of("image/webp")),
+            Map.entry("bmp",  Set.of("image/bmp", "image/x-ms-bmp")),
             // PDF
             Map.entry("pdf",  Set.of("application/pdf")),
             // OOXML（实际是 ZIP）
@@ -88,6 +89,51 @@ public class MimeTypeValidator {
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     "application/x-tika-ooxml",
                     "application/zip")),
+            // Legacy Office: Tika often reports OLE2 compound document for doc/xls/ppt.
+            Map.entry("doc", Set.of(
+                    "application/msword",
+                    "application/x-tika-msoffice",
+                    "application/x-ole-storage",
+                    "application/octet-stream")),
+            Map.entry("xls", Set.of(
+                    "application/vnd.ms-excel",
+                    "application/x-tika-msoffice",
+                    "application/x-ole-storage",
+                    "application/octet-stream")),
+            Map.entry("ppt", Set.of(
+                    "application/vnd.ms-powerpoint",
+                    "application/x-tika-msoffice",
+                    "application/x-ole-storage",
+                    "application/octet-stream")),
+            // Text / code files
+            Map.entry("txt",  Set.of("text/plain", "application/octet-stream")),
+            Map.entry("log",  Set.of("text/plain", "application/octet-stream")),
+            Map.entry("csv",  Set.of("text/plain", "text/csv", "application/csv", "application/vnd.ms-excel")),
+            Map.entry("json", Set.of("application/json", "text/plain")),
+            Map.entry("xml",  Set.of("application/xml", "text/xml", "text/plain")),
+            Map.entry("yml",  Set.of("text/plain", "application/x-yaml", "text/x-yaml")),
+            Map.entry("yaml", Set.of("text/plain", "application/x-yaml", "text/x-yaml")),
+            Map.entry("sql",  Set.of("text/plain", "text/x-sql", "application/sql")),
+            Map.entry("java", Set.of("text/plain", "text/x-java-source")),
+            Map.entry("py",   Set.of("text/plain", "text/x-python")),
+            Map.entry("js",   Set.of("text/plain", "text/javascript", "application/javascript", "application/x-javascript")),
+            Map.entry("jsx",  Set.of("text/plain", "text/javascript", "application/javascript", "application/x-javascript")),
+            Map.entry("ts",   Set.of("text/plain", "text/x-typescript", "application/x-typescript")),
+            Map.entry("tsx",  Set.of("text/plain", "text/x-typescript", "application/x-typescript")),
+            Map.entry("vue",  Set.of("text/plain", "text/html", "application/xml", "text/xml")),
+            Map.entry("css",  Set.of("text/plain", "text/css")),
+            Map.entry("scss", Set.of("text/plain", "text/x-scss")),
+            Map.entry("html", Set.of("text/plain", "text/html")),
+            Map.entry("htm",  Set.of("text/plain", "text/html")),
+            // Browser-previewable media
+            Map.entry("mp4",  Set.of("video/mp4", "application/mp4", "application/octet-stream")),
+            Map.entry("webm", Set.of("video/webm", "application/octet-stream")),
+            Map.entry("mov",  Set.of("video/quicktime", "application/octet-stream")),
+            Map.entry("avi",  Set.of("video/x-msvideo", "video/avi", "application/octet-stream")),
+            Map.entry("mp3",  Set.of("audio/mpeg", "audio/mp3", "application/octet-stream")),
+            Map.entry("wav",  Set.of("audio/wav", "audio/x-wav", "audio/vnd.wave", "application/octet-stream")),
+            Map.entry("m4a",  Set.of("audio/mp4", "audio/x-m4a", "application/octet-stream")),
+            Map.entry("ogg",  Set.of("audio/ogg", "application/ogg", "video/ogg")),
             // 压缩包
             Map.entry("zip", Set.of("application/zip", "application/x-zip-compressed")),
             // Markdown / 纯文本
@@ -127,13 +173,26 @@ public class MimeTypeValidator {
      */
     public void validate(MultipartFile file, String declaredExt) {
         if (!securityProperties.getUpload().isRealMimeCheck()) return;
+        boolean allowAny = securityProperties.getUpload().isAllowAnyExtension();
         if (declaredExt == null || declaredExt.isBlank()) {
+            if (allowAny) {
+                // 审核流（2026-07-13）：无扩展名文件放行进待审队列，由人工审核甄别
+                return;
+            }
             // 严格化（漏洞 24）：早期对空扩展名 return 跳过；现在直接拒绝
             throw new MimeMismatchException("不支持的扩展名：(空)");
         }
         String ext = declaredExt.toLowerCase(Locale.ROOT);
         Set<String> allowed = EXT_TO_MIMES.get(ext);
         if (allowed == null) {
+            if (allowAny) {
+                // 审核流（2026-07-13）：未注册扩展名（exe/apk/zip/jar 等）放行进待审队列。
+                // 刻意不做 MIME 黑名单检查——黑名单含 application/x-msdownload 等可执行类型，
+                // 而"支持上传可运行程序"正是业务需求；甄别责任转移给人工审核，
+                // 且这些文件只能以 attachment 下载、无在线预览/服务端执行面。
+                // 已注册扩展名（下方）仍走严格交叉验证，防"PHP 改名 .png"伪装。
+                return;
+            }
             // 严格化（漏洞 24）：未注册扩展名直接拒绝（替代原"静默放行"策略）。
             // 这样一来新增允许扩展名时，必须同步更新 EXT_TO_MIMES 否则不会通过校验。
             throw new MimeMismatchException("不支持的扩展名：." + ext);

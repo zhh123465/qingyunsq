@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 /**
- * 本地磁盘存储实现，仅供 dev / 单元测试使用，prod 必须切到 minio / oss。
+ * 本地磁盘存储实现，仅供 dev / 单元测试使用，prod 必须切到 OSS。
  *
  * <p>对应 bugfix.md 漏洞 6 / 15 的接口扩展（T4.3）：</p>
  * <ul>
@@ -27,7 +27,7 @@ import java.util.UUID;
  *       {@code size = -1}（旧调用方过渡期）允许跳过 size 校验，写入完成即返回。</li>
  *   <li>实现 {@code issuePublicGetUrl}：返回站内代理路径
  *       {@code /api/v1/local-storage/<storageKey>}。当前没有真正的 controller 处理该路径，
- *       仅供 dev 调试使用，避免 minio 模式下 {@code UserController} 拼接出 404 的硬编码 URL。
+ *       仅供 dev 调试使用，避免对象存储模式下 {@code UserController} 拼接出 404 的硬编码 URL。
  *       prod 部署若仍走 local 模式将形成"头像无法访问"，符合 design.md 主题 4 的明确权衡。</li>
  * </ul>
  */
@@ -124,7 +124,7 @@ public class LocalStorageService implements StorageService {
 
     @Override
     public String issuePublicGetUrl(String storageKey) {
-        // TODO(prod): local 模式仅供 dev / 单元测试使用；prod 必须切换到 minio / oss，
+        // TODO(prod): local 模式仅供 dev / 单元测试使用；prod 必须切换到 OSS，
         //  否则该 URL 没有真实 controller 处理（WebMvcConfig 已显式删除 /uploads/** 静态映射）。
         //  设计上不在 local 模式接入 SignedUrlService 是为了避免给生产部署留下"看似可用"的捷径——
         //  让 prod 部署在跑通整个上传链路时立刻发现 404，反向倒逼运维切到对象存储。

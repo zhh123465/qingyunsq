@@ -30,5 +30,10 @@ public class Resource extends BaseEntity {
     private Integer collectCount;
     private String version;
     private String description;
+    /** 0=隐藏 1=已发布 2=待审核 3=已驳回 */
     private Integer status;
+    /** 驳回原因（status=3 时有值）。 */
+    private String reviewReason;
+    private Long reviewedBy;
+    private java.time.LocalDateTime reviewedAt;
 }

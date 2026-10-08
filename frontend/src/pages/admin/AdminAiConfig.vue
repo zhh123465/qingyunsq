@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import {
-  NCard, NSelect, NInput, NButton, NSpace, NForm, NFormItem,
+  NCard, NSelect, NInput, NButton, NSpace, NForm, NFormItem, NTag,
   useMessage,
   type FormInst, type FormRules,
 } from 'naive-ui';
 import { getTenants, updateTenantAiConfig, getTenantAiConfig } from '@/api/tenants';
 import type { TenantVO } from '@/api/tenants';
+import { useAuthStore } from '@/stores/auth';
 
 const message = useMessage();
+const auth = useAuthStore();
+const currentRole = computed(() => auth.user?.role || localStorage.getItem('role') || '');
+const isSuper = computed(() => currentRole.value === 'SUPER_ADMIN');
+
 const tenants = ref<TenantVO[]>([]);
 const selectedTenantId = ref<number | null>(null);
+const currentTenantName = ref<string>('');
 const loading = ref(false);
 const saving = ref(false);
 
@@ -22,7 +28,6 @@ const providerOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },
 ];
 
-// F5: mock 模式不校验；openai 模式 baseUrl/apiKey/model 必填，baseUrl 需 http(s) 前缀
 const rules = computed<FormRules>(() => {
   if (form.value.provider !== 'openai') {
     return {} as FormRules;
@@ -46,13 +51,23 @@ const rules = computed<FormRules>(() => {
 });
 
 onMounted(async () => {
-  try {
-    tenants.value = await getTenants();
-  } catch { /* ignore */ }
+  if (isSuper.value) {
+    try {
+      tenants.value = await getTenants();
+    } catch {
+      // ignore
+    }
+  } else {
+    // TENANT_ADMIN 不能列全租户，直接锁定为当前租户
+    if (auth.tenantId != null) {
+      selectedTenantId.value = auth.tenantId;
+      currentTenantName.value = auth.tenantCode || `租户 ${auth.tenantId}`;
+      await loadConfig(auth.tenantId);
+    }
+  }
 });
 
-async function selectTenant(id: number) {
-  selectedTenantId.value = id;
+async function loadConfig(id: number) {
   loading.value = true;
   try {
     const cfg = await getTenantAiConfig(id);
@@ -68,9 +83,13 @@ async function selectTenant(id: number) {
   loading.value = false;
 }
 
+async function selectTenant(id: number) {
+  selectedTenantId.value = id;
+  await loadConfig(id);
+}
+
 async function save() {
   if (selectedTenantId.value === null) return;
-  // F5: 调 service 之前先校验，失败时 naive-ui 自动在表单项下方展示错误
   try {
     await formRef.value?.validate();
   } catch {
@@ -89,21 +108,36 @@ async function save() {
 
 <template>
   <div class="admin-page">
-    <h2>
-      AI 配置管理
-    </h2>
+    <h2>AI 配置管理</h2>
 
-    <NSpace class="admin-filterbar">
+    <NSpace
+      v-if="isSuper"
+      class="admin-filterbar"
+    >
       <NSelect
         v-model:value="selectedTenantId"
         :options="tenants.map(t => ({ label: t.name, value: t.id }))"
         placeholder="选择租户"
-        style="width: 200px;"
+        style="width: 240px;"
         @update:value="selectTenant"
       />
     </NSpace>
 
-    <template v-if="selectedTenantId">
+    <div
+      v-else
+      class="admin-filterbar tenant-lock"
+    >
+      当前租户：
+      <NTag
+        type="info"
+        style="margin-left: 8px;"
+      >{{ currentTenantName }}</NTag>
+      <span class="lock-hint">
+        （租户管理员仅可管理自己租户的 AI 配置，如需跨租户请联系超级管理员）
+      </span>
+    </div>
+
+    <template v-if="selectedTenantId !== null">
       <NCard
         v-if="!loading"
         title="AI 服务配置"
@@ -162,15 +196,27 @@ async function save() {
           </NButton>
         </NForm>
       </NCard>
-      <p v-else>
-        加载中...
-      </p>
+      <p v-else>加载中...</p>
     </template>
     <p
-      v-else
+      v-else-if="isSuper"
       style="color: #999;"
     >
       请先选择租户
     </p>
   </div>
 </template>
+
+<style scoped>
+.tenant-lock {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--cf-text-primary);
+}
+.lock-hint {
+  color: var(--cf-text-secondary);
+  font-size: 12px;
+  margin-left: 12px;
+}
+</style>

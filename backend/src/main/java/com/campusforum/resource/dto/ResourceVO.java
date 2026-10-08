@@ -27,5 +27,10 @@ public class ResourceVO {
     private Integer collectCount;
     private String version;
     private String description;
+    /** 资源状态：0=隐藏 1=已发布 2=待审核 3=已驳回。前台列表默认过滤 status=1。 */
+    private Integer status;
+    /** 驳回原因（status=3 时有值），仅上传者本人与管理端可见。 */
+    private String reviewReason;
+    private LocalDateTime reviewedAt;
     private LocalDateTime createdAt;
 }

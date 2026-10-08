@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
+import { EyeOffOutline, EyeOutline } from '@vicons/ionicons5';
 import { forgotPassword, resetPassword } from '@/api/auth';
 import {
   getPasswordStrength,
@@ -17,7 +18,9 @@ const step = ref(1);
 const email = ref('');
 const emailCode = ref('');
 const newPassword = ref('');
+const showNewPassword = ref(false);
 const confirmPassword = ref('');
+const showConfirmPassword = ref(false);
 const loading = ref(false);
 const fieldState = ref({
   email: { active: false, touched: false, error: '', shaking: false },
@@ -139,16 +142,15 @@ async function handleReset() {
         class="flex justify-between items-center px-margin-mobile md:px-margin-desktop py-stack-md w-full mx-auto"
       >
         <div class="flex items-center gap-3">
-          <img src="@/assets/images/logo.png" alt="青云阁" class="w-8 h-8 rounded-lg object-cover" />
           <div
             class="font-headline-md text-[24px] font-extrabold tracking-tight h-[32px] overflow-hidden"
           >
             <div class="flex flex-col rolling-text">
               <div class="h-[32px] flex items-center">
-                <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+                <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
               </div>
               <div class="h-[32px] flex items-center">
-                <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+                <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
               </div>
             </div>
           </div>
@@ -276,9 +278,9 @@ async function handleReset() {
                 <input
                   id="newPassword"
                   v-model="newPassword"
-                  type="password"
+                  :type="showNewPassword ? 'text' : 'password'"
                   placeholder="8-64 位新密码，需包含字母和数字"
-                  class="w-full bg-transparent border rounded-xl px-4 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
+                  class="w-full bg-transparent border rounded-xl pl-4 pr-10 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
                   :class="
                     fieldState.newPassword.touched && fieldState.newPassword.error
                       ? 'border-error focus:border-error focus:ring-error'
@@ -288,6 +290,15 @@ async function handleReset() {
                   @blur="blurField('newPassword')"
                   @input="runFieldValidation('newPassword')"
                 />
+                <button
+                  type="button"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                  @click="showNewPassword = !showNewPassword"
+                  tabindex="-1"
+                >
+                  <EyeOffOutline v-if="showNewPassword" class="w-5 h-5" />
+                  <EyeOutline v-else class="w-5 h-5" />
+                </button>
               </div>
               <!-- Password Strength Bar -->
               <div
@@ -328,9 +339,9 @@ async function handleReset() {
                 <input
                   id="confirmPassword"
                   v-model="confirmPassword"
-                  type="password"
+                  :type="showConfirmPassword ? 'text' : 'password'"
                   placeholder="请再次输入新密码"
-                  class="w-full bg-transparent border rounded-xl px-4 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
+                  class="w-full bg-transparent border rounded-xl pl-4 pr-10 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
                   :class="
                     fieldState.confirmPassword.touched && fieldState.confirmPassword.error
                       ? 'border-error focus:border-error focus:ring-error'
@@ -340,6 +351,15 @@ async function handleReset() {
                   @blur="blurField('confirmPassword')"
                   @input="runFieldValidation('confirmPassword')"
                 />
+                <button
+                  type="button"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                  @click="showConfirmPassword = !showConfirmPassword"
+                  tabindex="-1"
+                >
+                  <EyeOffOutline v-if="showConfirmPassword" class="w-5 h-5" />
+                  <EyeOutline v-else class="w-5 h-5" />
+                </button>
               </div>
               <small
                 v-if="fieldState.confirmPassword.touched && fieldState.confirmPassword.error"

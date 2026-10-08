@@ -7,7 +7,8 @@ import com.campusforum.infra.sanitize.HtmlSanitizerService;
 import com.campusforum.message.domain.Message;
 import com.campusforum.message.dto.MessageVO;
 import com.campusforum.message.mapper.MessageMapper;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.BroadcastMessage;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.sensitive.service.SensitiveWordService;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.dto.PublicUserVO;
@@ -27,7 +28,7 @@ public class MessageService {
 
     private final MessageMapper messageMapper;
     private final UserMapper userMapper;
-    private final SessionRegistry sessionRegistry;
+    private final WebSocketBroadcaster webSocketBroadcaster;
     private final ObjectMapper objectMapper;
     /**
      * HTML 净化服务（任务 T8.3 / 漏洞 18）：私信内容写库前剥离 {@code <script>} /
@@ -80,7 +81,7 @@ public class MessageService {
             payloadMap.put("senderName", senderName);
             payloadMap.put("content", content != null ? content.substring(0, Math.min(content.length(), 50)) : "[图片]");
             String payload = objectMapper.writeValueAsString(payloadMap);
-            sessionRegistry.sendToUser(receiverId, payload);
+            webSocketBroadcaster.broadcast(new BroadcastMessage(receiverId, "MESSAGE", payload));
         } catch (Exception ignored) {}
 
         return toVO(msg);

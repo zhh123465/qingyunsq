@@ -2,9 +2,14 @@ package com.campusforum.space.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campusforum.common.BusinessException;
 import com.campusforum.common.ErrorCode;
 import com.campusforum.notify.service.NotifyService;
+import com.campusforum.post.domain.Post;
+import com.campusforum.post.mapper.PostMapper;
 import com.campusforum.space.domain.Space;
 import com.campusforum.space.domain.SpaceMember;
 import com.campusforum.space.dto.*;
@@ -13,9 +18,11 @@ import com.campusforum.space.mapper.SpaceMemberMapper;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.dto.PublicUserVO;
 import com.campusforum.user.mapper.UserMapper;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,9 +51,41 @@ public class SpaceService {
     private final SpaceMemberMapper memberMapper;
     private final UserMapper userMapper;
     private final NotifyService notifyService;
+    private final PostMapper postMapper;
 
     @Value("${space.max-join-count:20}")
     private int maxJoinCount;
+
+    /** Self reference for AOP self-invocation (batch purge loops with per-item transactions). */
+    @Resource
+    @Lazy
+    private SpaceService self;
+
+    /** 空间搜索索引同步（setter 注入，避免影响测试中的手工构造器）。 */
+    private com.campusforum.search.service.SearchIndexService searchIndexService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSearchIndexService(com.campusforum.search.service.SearchIndexService searchIndexService) {
+        this.searchIndexService = searchIndexService;
+    }
+
+    /** 索引同步 best-effort：任何异常都不影响主业务流程。 */
+    private void syncSpaceIndex(Space s) {
+        if (searchIndexService == null || s == null) return;
+        try {
+            searchIndexService.indexSpace(s);
+        } catch (Exception e) {
+            log.debug("Space search index sync failed for id={}: {}", s.getId(), e.getMessage());
+        }
+    }
+
+    private void removeSpaceIndex(Long id) {
+        if (searchIndexService == null || id == null) return;
+        try {
+            searchIndexService.deleteSpace(id);
+        } catch (Exception e) {
+            log.debug("Space search index delete failed for id={}: {}", id, e.getMessage());
+        }
+    }
 
     @Transactional
     public SpaceVO create(Long userId, CreateSpaceRequest req) {
@@ -81,6 +120,7 @@ public class SpaceService {
         member.setJoinedAt(LocalDateTime.now());
         memberMapper.insert(member);
 
+        syncSpaceIndex(space);
         log.info("Space created: id={}, name={}", space.getId(), space.getName());
         return toVO(space, userId, "OWNER", true);
     }
@@ -148,6 +188,7 @@ public class SpaceService {
         if (req.getPostNotice() != null) space.setPostNotice(req.getPostNotice());
 
         spaceMapper.updateById(space);
+        syncSpaceIndex(space);
         return getById(spaceId);
     }
 
@@ -342,6 +383,7 @@ public class SpaceService {
         }
 
         spaceMapper.deleteById(spaceId);
+        removeSpaceIndex(spaceId);
         log.info("Space dismissed: id={}", spaceId);
     }
 
@@ -358,15 +400,16 @@ public class SpaceService {
         }
         space.setStatus(status);
         spaceMapper.updateById(space);
+        // status=1 重新入索引，status=0 从索引删除（indexSpace 内部按可见性判断）
+        syncSpaceIndex(space);
         log.info("Space status changed: id={}, status={}", spaceId, status);
     }
 
-    public List<SpaceVO> listSpacesForAdmin(String keyword, String category, Integer status, Long cursor, int limit) {
-        int size = Math.min(limit, 50);
+    public IPage<SpaceVO> listSpacesForAdminPaged(String keyword, String category, Integer status,
+                                                  long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Space> page = new Page<>(pageNum, size);
         LambdaQueryWrapper<Space> qw = new LambdaQueryWrapper<>();
-        if (cursor != null) {
-            qw.lt(Space::getId, cursor);
-        }
         if (keyword != null && !keyword.isBlank()) {
             qw.like(Space::getName, keyword);
         }
@@ -377,10 +420,115 @@ public class SpaceService {
             qw.eq(Space::getStatus, status);
         }
         qw.orderByDesc(Space::getId);
-        qw.last("LIMIT " + size);
-
+        IPage<Space> res = spaceMapper.selectPage(page, qw);
         Long currentUserId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        return toVOList(spaceMapper.selectList(qw), currentUserId);
+        return convertSpacePage(res, currentUserId);
+    }
+
+    // === 回收站（管理端）===
+    public IPage<SpaceVO> listTrashForAdminPaged(String keyword, String category,
+                                                 long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Space> page = new Page<>(pageNum, size);
+        QueryWrapper<Space> qw = new QueryWrapper<>();
+        qw.lambda().like(keyword != null && !keyword.isBlank(), Space::getName, keyword)
+                .eq(category != null && !category.isBlank(), Space::getCategory, category)
+                .orderByDesc(Space::getId);
+        IPage<Space> res = spaceMapper.selectTrashPage(page, qw);
+        Long currentUserId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+        return convertSpacePage(res, currentUserId);
+    }
+
+    /** IPage<Space> → IPage<SpaceVO>：MP 的 convert 逐条转换，保留 total/page/size 元信息。 */
+    private IPage<SpaceVO> convertSpacePage(IPage<Space> src, Long currentUserId) {
+        IPage<SpaceVO> dst = new Page<>(src.getCurrent(), src.getSize(), src.getTotal());
+        dst.setRecords(toVOList(src.getRecords(), currentUserId));
+        return dst;
+    }
+
+    @Transactional
+    public void restoreForAdmin(Long spaceId) {
+        int rows = spaceMapper.restoreById(spaceId);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.SPACE_NOT_FOUND);
+        }
+        syncSpaceIndex(spaceMapper.selectById(spaceId));
+        log.info("Space restored from trash: id={}", spaceId);
+    }
+
+    /**
+     * 彻底删除空间。前置校验：该 space 下不能有 deleted=0 的帖子，否则要求先清理帖子。
+     * 通过后级联删除 space_members 再物理删除 spaces 记录。
+     */
+    @Transactional
+    public Map<String, Integer> purgeForAdmin(Long spaceId) {
+        // 校验：该空间下不能有活跃帖子（deleted=0）
+        Long activePosts = postMapper.selectCount(new LambdaQueryWrapper<Post>()
+                .eq(Post::getSpaceId, spaceId));
+        if (activePosts != null && activePosts > 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(),
+                    "该空间下仍有 " + activePosts + " 条活跃帖子，请先清理后再彻底删除");
+        }
+        int members = memberMapper.physicalDeleteBySpaceId(spaceId);
+        int self = spaceMapper.physicalDeleteById(spaceId);
+        if (self == 0) {
+            throw new BusinessException(ErrorCode.SPACE_NOT_FOUND.getCode(),
+                    "空间不在回收站或已被清理");
+        }
+        removeSpaceIndex(spaceId);
+        log.info("Space purged: id={}, members={}", spaceId, members);
+        Map<String, Integer> counts = new java.util.HashMap<>();
+        counts.put("members", members);
+        return counts;
+    }
+
+    // === 批量管理端操作 ===
+    public int setStatusBatchForAdmin(List<Long> ids, int status) {
+        int rows = spaceMapper.batchSetStatus(ids, status);
+        ids.forEach(id -> syncSpaceIndex(spaceMapper.selectById(id)));
+        return rows;
+    }
+
+    public int deleteBatchForAdmin(List<Long> ids) {
+        int rows = spaceMapper.batchLogicalDelete(ids);
+        ids.forEach(this::removeSpaceIndex);
+        return rows;
+    }
+
+    public int restoreBatchForAdmin(List<Long> ids) {
+        int rows = spaceMapper.batchRestore(ids);
+        ids.forEach(id -> syncSpaceIndex(spaceMapper.selectById(id)));
+        return rows;
+    }
+
+    /** 批量彻底删除：循环调用单条 purge，独立事务，单条失败不影响整批。 */
+    public Map<String, Object> purgeBatchForAdmin(List<Long> ids) {
+        int success = 0;
+        List<Map<String, Object>> failed = new java.util.ArrayList<>();
+        Map<String, Integer> totalCounts = new java.util.HashMap<>();
+        for (Long id : ids) {
+            try {
+                Map<String, Integer> c = self.purgeForAdmin(id);
+                success++;
+                c.forEach((k, v) -> totalCounts.merge(k, v, Integer::sum));
+            } catch (BusinessException e) {
+                Map<String, Object> f = new java.util.HashMap<>();
+                f.put("id", id);
+                f.put("reason", e.getMessage() != null ? e.getMessage() : "PURGE_FAILED");
+                failed.add(f);
+            } catch (Exception e) {
+                log.warn("purge space failed: id={}, msg={}", id, e.getMessage());
+                Map<String, Object> f = new java.util.HashMap<>();
+                f.put("id", id);
+                f.put("reason", "PURGE_FAILED");
+                failed.add(f);
+            }
+        }
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("success", success);
+        result.put("failed", failed);
+        result.put("counts", totalCounts);
+        return result;
     }
 
     public void checkSpaceAdmin(Long spaceId, Long userId) {

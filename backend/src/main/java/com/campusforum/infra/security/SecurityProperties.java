@@ -118,13 +118,25 @@ public class SecurityProperties {
 
         /** 允许的请求方法。 */
         private List<String> allowedMethods = new ArrayList<>(List.of(
-                "GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
     }
 
     @Data
     public static class Upload {
         /** 是否使用 Apache Tika 检测真实 MIME 类型。 */
         private boolean realMimeCheck = true;
+
+        /**
+         * 是否允许上传任意扩展名文件（2026-07-13 审核流引入）。
+         *
+         * <p>开启后：扩展名白名单（upload.allowed-extensions）不再拦截，
+         * {@code MimeTypeValidator} 对未注册扩展名放行（已注册的仍做 Tika 交叉验证，
+         * MIME 黑名单始终生效）。安全前提是资源审核流：普通用户上传落
+         * status=2 待审核，人工审核通过后才对外发布，机器甄别责任转移给审核人。</p>
+         *
+         * <p>默认 false 保持旧白名单行为；生产由 {@code UPLOAD_ALLOW_ANY_EXTENSION} 开启。</p>
+         */
+        private boolean allowAnyExtension = false;
 
         /** 全局禁止上传的扩展名（在 allowed-extensions 之上的二次过滤）。 */
         private List<String> blockedExtensions = new ArrayList<>();

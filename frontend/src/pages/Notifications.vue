@@ -7,7 +7,7 @@ import {
 import {
   HeartOutline, ChatbubbleOutline, ReturnDownBackOutline,
   CheckmarkCircleOutline, PeopleOutline, ArrowBackOutline,
-  NotificationsOutline, CheckmarkDoneOutline
+  NotificationsOutline, CheckmarkDoneOutline, FolderOpenOutline
 } from '@vicons/ionicons5';
 import { getNotifications, getUnreadCount, markRead, markAllRead } from '@/api/notifications';
 import type { NotificationVO } from '@/types/notification';
@@ -26,6 +26,7 @@ const typeIcons: Record<string, Component> = {
   REPLY: ReturnDownBackOutline,
   ACCEPT: CheckmarkCircleOutline,
   JOIN: PeopleOutline,
+  RESOURCE_REVIEW: FolderOpenOutline,
 };
 
 const typeColors: Record<string, string> = {
@@ -34,6 +35,7 @@ const typeColors: Record<string, string> = {
   REPLY: '#10b981',
   ACCEPT: '#f59e0b',
   JOIN: '#8b5cf6',
+  RESOURCE_REVIEW: '#0ea5e9',
 };
 
 const typeBgColors: Record<string, string> = {
@@ -42,6 +44,7 @@ const typeBgColors: Record<string, string> = {
   REPLY: 'rgba(16, 185, 129, 0.15)',
   ACCEPT: 'rgba(245, 158, 11, 0.15)',
   JOIN: 'rgba(139, 92, 246, 0.15)',
+  RESOURCE_REVIEW: 'rgba(14, 165, 233, 0.15)',
 };
 
 function getTypeIcon(type: string): Component {

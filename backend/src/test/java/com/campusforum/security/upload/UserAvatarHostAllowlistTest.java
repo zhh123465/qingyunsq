@@ -22,6 +22,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
+import com.campusforum.ai.workspace.mapper.AiKnowledgeBaseMapper;
+import com.campusforum.ai.workspace.mapper.AiKbQaPairMapper;
 
 import java.util.List;
 
@@ -85,7 +87,9 @@ class UserAvatarHostAllowlistTest {
                 securityProperties,
                 mock(AuditLogService.class),
                 mock(SecurityMetrics.class),
-                mock(WechatMiniProgramClient.class));
+                mock(WechatMiniProgramClient.class),
+                mock(AiKnowledgeBaseMapper.class),
+                mock(AiKbQaPairMapper.class));
 
         // updateProfile 主流程读 / 写不依赖 Sa-Token Session，但保险起见仍 mock 静态依赖
         stpUtilMock = mockStatic(StpUtil.class);

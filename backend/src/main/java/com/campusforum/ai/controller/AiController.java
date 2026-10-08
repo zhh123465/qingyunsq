@@ -1,5 +1,6 @@
 package com.campusforum.ai.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.campusforum.ai.domain.PostAiCard;
 import com.campusforum.ai.dto.AiRequest;
 import com.campusforum.ai.dto.AiResponse;
@@ -9,7 +10,10 @@ import com.campusforum.ai.service.PostAiCardService;
 import com.campusforum.ai.service.RagChatService;
 import com.campusforum.common.R;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/ai")
@@ -19,6 +23,7 @@ public class AiController {
     private final AiService aiService;
     private final RagChatService ragChatService;
     private final PostAiCardService postAiCardService;
+    private final StringRedisTemplate redisTemplate;
 
     @PostMapping("/summarize")
     public R<AiResponse> summarize(@RequestBody AiRequest req) {
@@ -108,5 +113,19 @@ public class AiController {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    @GetMapping("/rate-limit-status")
+    public R<Map<String, Object>> rateLimitStatus() {
+        if (!StpUtil.isLogin()) {
+            return R.ok(Map.of("normal", Map.of("limit", 20, "used", 0, "remaining", 20),
+                    "pro", Map.of("limit", 10, "used", 0, "remaining", 10)));
+        }
+        long userId = StpUtil.getLoginIdAsLong();
+        Long proUsed = redisTemplate.opsForZSet().zCard("ai_rate:user:" + userId + ":hour:pro");
+        Long normalUsed = redisTemplate.opsForZSet().zCard("ai_rate:user:" + userId + ":hour:normal");
+        return R.ok(Map.of(
+                "normal", Map.of("limit", 20, "used", normalUsed, "remaining", Math.max(0, 20 - normalUsed)),
+                "pro", Map.of("limit", 10, "used", proUsed, "remaining", Math.max(0, 10 - proUsed))));
     }
 }

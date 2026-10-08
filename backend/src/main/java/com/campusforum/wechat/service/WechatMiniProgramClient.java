@@ -4,6 +4,9 @@ import com.campusforum.common.BusinessException;
 import com.campusforum.common.ErrorCode;
 import com.campusforum.infra.security.SafeHttpClient;
 import com.campusforum.wechat.config.WechatMiniProgramProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +26,7 @@ public class WechatMiniProgramClient {
     private static final String CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session";
 
     private final WechatMiniProgramProperties properties;
+    private final ObjectMapper objectMapper;
 
     public WechatCodeSession code2Session(String code) {
         if (!StringUtils.hasText(properties.getAppId()) || !StringUtils.hasText(properties.getAppSecret())) {
@@ -42,7 +46,8 @@ public class WechatMiniProgramClient {
             RestTemplate restTemplate = SafeHttpClient.build(
                     properties.getConnectTimeoutMs(),
                     properties.getReadTimeoutMs());
-            body = restTemplate.getForObject(uri, Map.class);
+            String responseBody = restTemplate.getForObject(uri, String.class);
+            body = parseResponse(responseBody);
         } catch (RestClientException e) {
             log.warn("Wechat code2Session request failed: {}", e.getMessage());
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE.getCode(), "微信登录服务暂不可用，请稍后重试");
@@ -73,5 +78,19 @@ public class WechatMiniProgramClient {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Map<?, ?> parseResponse(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(responseBody, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException e) {
+            String summary = responseBody.length() > 120 ? responseBody.substring(0, 120) : responseBody;
+            log.warn("Wechat code2Session returned non-json response: {}", summary);
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE.getCode(), "微信登录服务暂不可用，请稍后重试");
+        }
     }
 }

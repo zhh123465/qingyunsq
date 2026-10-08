@@ -59,6 +59,13 @@ class SaTokenConfigTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("微信登录入口必须由 SaRouter.notMatch 放行")
+    void shouldIncludeWechatLoginInPublicAuthPaths() {
+        assertThat(SaTokenConfig.PUBLIC_AUTH_PATHS)
+                .contains("/api/v1/auth/wechat-login");
+    }
+
     /**
      * 通过反射从 InterceptorRegistry 中提取排除路径列表。
      */

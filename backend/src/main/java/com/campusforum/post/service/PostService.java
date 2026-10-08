@@ -2,6 +2,8 @@ package com.campusforum.post.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campusforum.common.BusinessException;
 import com.campusforum.common.ErrorCode;
 import com.campusforum.achievement.service.AchievementService;
@@ -18,10 +20,13 @@ import com.campusforum.post.dto.PostPageRequest;
 import com.campusforum.post.dto.PostVO;
 import com.campusforum.post.dto.ReactionRequest;
 import com.campusforum.post.dto.UpdatePostRequest;
+import com.campusforum.post.mapper.CommentMapper;
 import com.campusforum.post.mapper.PostMapper;
 import com.campusforum.post.mapper.ReactionMapper;
+import com.campusforum.ai.mapper.PostAiCardMapper;
 import com.campusforum.qa.domain.QaQuestion;
 import com.campusforum.qa.mapper.QaQuestionMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.campusforum.space.domain.SpaceMember;
 import com.campusforum.space.mapper.SpaceMemberMapper;
 import com.campusforum.user.domain.User;
@@ -30,9 +35,11 @@ import com.campusforum.user.mapper.UserMapper;
 import com.campusforum.user.service.UserService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +60,8 @@ public class PostService {
     private final ReactionMapper reactionMapper;
     private final UserMapper userMapper;
     private final QaQuestionMapper qaQuestionMapper;
+    private final CommentMapper commentMapper;
+    private final PostAiCardMapper postAiCardMapper;
     private final NotifyService notifyService;
     private final AchievementService achievementService;
     private final MeiliSearchClient meiliSearchClient;
@@ -72,6 +81,15 @@ public class PostService {
      */
     private final HtmlSanitizerService htmlSanitizerService;
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Self reference for AOP proxy-based self-invocation (used by purgeBatchForAdmin to
+     * make each per-item {@link #purgeForAdmin(Long)} call open its own transaction).
+     * {@code @Lazy} 兜底避免潜在循环依赖。
+     */
+    @Resource
+    @Lazy
+    private PostService self;
 
     @Transactional
     public PostVO create(Long userId, CreatePostRequest req) {
@@ -474,12 +492,14 @@ public class PostService {
         return postMapper.selectList(qw).stream().map(p -> toVO(p, currentUserId)).toList();
     }
 
-    public List<PostVO> listPostsForAdmin(String keyword, Integer status, String scope, Long cursor, int limit) {
-        int size = Math.min(limit, 50);
+    /**
+     * 分页版：管理端帖子列表（正常记录，走 MP 逻辑删除拦截，自动 WHERE deleted=0）。
+     */
+    public IPage<PostVO> listPostsForAdminPaged(String keyword, Integer status, String scope,
+                                                long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Post> page = new Page<>(pageNum, size);
         LambdaQueryWrapper<Post> qw = new LambdaQueryWrapper<>();
-        if (cursor != null) {
-            qw.lt(Post::getId, cursor);
-        }
         if (keyword != null && !keyword.isBlank()) {
             qw.and(w -> w.like(Post::getTitle, keyword)
                     .or().like(Post::getContent, keyword));
@@ -491,10 +511,131 @@ public class PostService {
             qw.eq(Post::getScope, scope);
         }
         qw.orderByDesc(Post::getId);
-        qw.last("LIMIT " + size);
-
+        IPage<Post> res = postMapper.selectPage(page, qw);
         Long currentUserId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        return postMapper.selectList(qw).stream().map(p -> toVO(p, currentUserId)).toList();
+        return res.convert(p -> toVO(p, currentUserId));
+    }
+
+    // === 回收站：列出已删除帖子 + 恢复 + 彻底删除（管理端）===
+    // 用 mapper.selectTrash 绕开 MyBatis-Plus 的 deleted=0 自动条件；
+    // 多租户插件仍会追加 tenant_id 条件，租户隔离不受影响。
+
+    /**
+     * 分页版：管理端回收站帖子列表（deleted=1，走 mapper 原生 SQL 绕过 @TableLogic）。
+     */
+    public IPage<PostVO> listTrashForAdminPaged(String keyword, String scope,
+                                                long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Post> page = new Page<>(pageNum, size);
+        QueryWrapper<Post> qw = new QueryWrapper<>();
+        qw.lambda().eq(scope != null && !scope.isBlank(), Post::getScope, scope);
+        if (keyword != null && !keyword.isBlank()) {
+            qw.lambda().and(w -> w.like(Post::getTitle, keyword).or().like(Post::getContent, keyword));
+        }
+        qw.lambda().orderByDesc(Post::getId);
+        IPage<Post> res = postMapper.selectTrashPage(page, qw);
+        Long currentUserId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+        return res.convert(p -> toVO(p, currentUserId));
+    }
+
+    @Transactional
+    public void restoreForAdmin(Long postId) {
+        int rows = postMapper.restoreById(postId);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.POST_NOT_FOUND);
+        }
+        // 恢复后同步刷新搜索索引
+        Post post = postMapper.selectById(postId);
+        if (post != null) {
+            meiliSearchClient.indexDocument("posts", buildPostDoc(post));
+        }
+        log.info("Post restored from trash: id={}", postId);
+    }
+
+    /** 彻底删除并级联清理评论 / 反应 / AI 卡片 / 问答扩展。返回各级联表的删除行数用于审计。 */
+    @Transactional
+    public Map<String, Integer> purgeForAdmin(Long postId) {
+        int reactions = reactionMapper.physicalDeleteByTarget("POST", postId);
+        int comments = commentMapper.physicalDeleteByPostId(postId);
+        int aiCards = postAiCardMapper.physicalDeleteByPostId(postId);
+        int qa = qaQuestionMapper.physicalDeleteByPostId(postId);
+        int self = postMapper.physicalDeleteById(postId);
+        if (self == 0) {
+            throw new BusinessException(ErrorCode.POST_NOT_FOUND.getCode(),
+                    "帖子不在回收站或已被清理");
+        }
+        meiliSearchClient.deleteDocument("posts", postId);
+        log.info("Post purged: id={}, comments={}, reactions={}, aiCards={}, qa={}",
+                postId, comments, reactions, aiCards, qa);
+        Map<String, Integer> counts = new HashMap<>();
+        counts.put("comments", comments);
+        counts.put("reactions", reactions);
+        counts.put("aiCards", aiCards);
+        counts.put("qa", qa);
+        return counts;
+    }
+
+    // === 批量管理端操作（对应 4 个 batch-* 端点）===
+
+    /** 批量改状态；返回影响行数。Post 允许 status ∈ {0,1,2}，controller 层再收敛。 */
+    public int setStatusBatchForAdmin(List<Long> ids, int status) {
+        return postMapper.batchSetStatus(ids, status);
+    }
+
+    /** 批量逻辑删除到回收站；返回影响行数。 */
+    public int deleteBatchForAdmin(List<Long> ids) {
+        int rows = postMapper.batchLogicalDelete(ids);
+        // 逻辑删除后同步从搜索索引移除
+        for (Long id : ids) {
+            meiliSearchClient.deleteDocument("posts", id);
+        }
+        return rows;
+    }
+
+    /** 批量从回收站恢复；返回影响行数。 */
+    public int restoreBatchForAdmin(List<Long> ids) {
+        int rows = postMapper.batchRestore(ids);
+        // 恢复后同步刷新搜索索引（只处理实际恢复出来的记录）
+        for (Long id : ids) {
+            Post p = postMapper.selectById(id);
+            if (p != null) {
+                meiliSearchClient.indexDocument("posts", buildPostDoc(p));
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * 批量彻底删除：循环调用单条 {@link #purgeForAdmin(Long)}，每条独立事务，
+     * 单条失败不影响其他条目，收集失败明细与累计级联数返回给上层。
+     */
+    public Map<String, Object> purgeBatchForAdmin(List<Long> ids) {
+        int success = 0;
+        List<Map<String, Object>> failed = new java.util.ArrayList<>();
+        Map<String, Integer> totalCounts = new HashMap<>();
+        for (Long id : ids) {
+            try {
+                Map<String, Integer> c = self.purgeForAdmin(id);
+                success++;
+                c.forEach((k, v) -> totalCounts.merge(k, v, Integer::sum));
+            } catch (BusinessException e) {
+                Map<String, Object> f = new HashMap<>();
+                f.put("id", id);
+                f.put("reason", e.getMessage() != null ? e.getMessage() : "PURGE_FAILED");
+                failed.add(f);
+            } catch (Exception e) {
+                log.warn("purge post failed: id={}, msg={}", id, e.getMessage());
+                Map<String, Object> f = new HashMap<>();
+                f.put("id", id);
+                f.put("reason", "PURGE_FAILED");
+                failed.add(f);
+            }
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", success);
+        result.put("failed", failed);
+        result.put("counts", totalCounts);
+        return result;
     }
 
     private PostVO toVO(Post post, Long currentUserId) {

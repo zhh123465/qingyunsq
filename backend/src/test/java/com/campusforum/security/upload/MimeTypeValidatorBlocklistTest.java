@@ -82,17 +82,17 @@ class MimeTypeValidatorBlocklistTest {
     @Test
     @DisplayName("未注册扩展名：直接抛 MimeMismatchException（替代原静默放行策略）")
     void unregistered_ext_isRejected() {
-        // 内容为合法纯文本，但 .txt 扩展名未在 EXT_TO_MIMES 中注册
+        // 内容为合法纯文本，但 .abc 扩展名未在 EXT_TO_MIMES 中注册
         byte[] txtBytes = "plain text content".getBytes();
         MockMultipartFile file = new MockMultipartFile(
-                "file", "note.txt", "text/plain", txtBytes);
+                "file", "note.abc", "text/plain", txtBytes);
 
-        assertThatThrownBy(() -> validator.validate(file, "txt"))
+        assertThatThrownBy(() -> validator.validate(file, "abc"))
                 .isInstanceOf(MimeMismatchException.class)
                 .hasMessageContaining("不支持的扩展名");
 
         // 未走到 Tika 嗅探阶段，因此不应有 mimeMismatch 埋点
-        verify(securityMetrics, never()).mimeMismatch(eq("txt"), org.mockito.ArgumentMatchers.anyString());
+        verify(securityMetrics, never()).mimeMismatch(eq("abc"), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test

@@ -902,9 +902,14 @@ async function submitSpaceResource() {
       tags,
       description: uploadDescription.value.trim() || undefined,
     });
-    spaceResources.value = [resource, ...spaceResources.value.filter((item) => item.id !== resource.id)];
+    if (resource.status === 2) {
+      // 审核流：待审核资源不混入空间文件列表，审核通过后自然出现
+      message.success('已提交审核，通过后会出现在学习圈文件里');
+    } else {
+      spaceResources.value = [resource, ...spaceResources.value.filter((item) => item.id !== resource.id)];
+      message.success('已上传到当前学习圈');
+    }
     activeTab.value = '文件';
-    message.success('已上传到当前学习圈');
     uploadVisible.value = false;
     resetUploadForm();
   } catch {

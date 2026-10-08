@@ -34,8 +34,8 @@ CampusForum 是一款面向全国高校、以学习互助为核心、采用"全�
 ## 快速开始
 
 ```bash
-git clone git@github.com:zhh123465/campus.git
-cd campus/deploy
+git clone git@github.com:zhh123465/qingyunsq.git
+cd qingyunsq/deploy
 cp .env.example .env
 # 编辑 .env 文件，按 deploy/SECURITY.md 设置所有必填项（弱默认值会启动失败）
 bash install.sh
@@ -44,7 +44,7 @@ bash install.sh
 ## 项目结构
 
 ```
-CampusForum/
+qingyunsq/
 ├─ backend/      # Spring Boot 应用
 ├─ frontend/     # Vue3 + Vite
 ├─ deploy/       # Docker Compose / Helm / 一键脚本
@@ -56,7 +56,7 @@ CampusForum/
 
 ## 开发指南
 
-详见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) 和 [AGENT.md](AGENT.md)。
+详见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) 和 [agents.md](agents.md)。
 
 ## 开源协议
 

@@ -37,6 +37,18 @@ public class AdminStpInterface implements StpInterface {
             "tenant:audit:log",
             "tenant:report:manage",
             "tenant:sensitive:manage",
+            // === 新增业务实体管理权限（管理端优化）：资源 / 笔记 / 打卡 / 评论 ===
+            "tenant:resource:manage",
+            "tenant:note:manage",
+            "tenant:checkin:manage",
+            "tenant:comment:manage",
+            // === 学习页排序管理（管理员在学习页直接调整教程/公开笔记展示顺序） ===
+            "tenant:learning:manage",
+            // === 系统公告：管理员发布本租户公告（前台顶栏横幅+独立公告页展示） ===
+            "tenant:announcement:manage",
+            // === 本租户 AI 配置：允许 TENANT_ADMIN 管理自己的 AI Provider，
+            //     但不能跨租户；跨租户仍需 super:tenant:manage。
+            "tenant:self:ai-config",
             // === 导出端点细粒度权限（T8.6） ===
             "tenant:export:users",
             "tenant:export:posts",

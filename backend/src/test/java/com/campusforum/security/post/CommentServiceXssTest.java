@@ -3,7 +3,7 @@ package com.campusforum.security.post;
 import com.campusforum.achievement.service.AchievementService;
 import com.campusforum.infra.sanitize.HtmlSanitizerService;
 import com.campusforum.notify.service.NotifyService;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.post.domain.Comment;
 import com.campusforum.post.domain.Post;
 import com.campusforum.post.dto.CreateCommentRequest;
@@ -76,7 +76,7 @@ class CommentServiceXssTest {
     private SensitiveWordService sensitiveWordService;
 
     @Mock
-    private SessionRegistry sessionRegistry;
+    private WebSocketBroadcaster webSocketBroadcaster;
 
     /** 真实 Sanitizer：OWASP Sanitizer 无状态，直接 new 验证真实剥离效果。 */
     private final HtmlSanitizerService htmlSanitizerService = new HtmlSanitizerService();
@@ -88,11 +88,11 @@ class CommentServiceXssTest {
         // 顺序与 CommentService 字段声明一致：
         // commentMapper / postMapper / userMapper / notifyService /
         // achievementService / qaQuestionMapper / reactionMapper /
-        // sensitiveWordService / sessionRegistry / htmlSanitizerService
+        // sensitiveWordService / webSocketBroadcaster / htmlSanitizerService
         commentService = new CommentService(
                 commentMapper, postMapper, userMapper, notifyService,
                 achievementService, qaQuestionMapper, reactionMapper,
-                sensitiveWordService, sessionRegistry, htmlSanitizerService);
+                sensitiveWordService, webSocketBroadcaster, htmlSanitizerService);
 
         // 默认敏感词风险 = 0，避免在 sanitize 之前抛异常
         when(sensitiveWordService.getRiskLevel(anyString())).thenReturn(0);

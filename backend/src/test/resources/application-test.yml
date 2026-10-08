@@ -71,7 +71,7 @@ search:
 # ---------- 文件上传 ----------
 upload:
   max-file-size: 10MB
-  allowed-extensions: pdf,doc,docx,ppt,pptx,xls,xlsx,zip,rar,7z,jpg,jpeg,png,gif,webp,md,markdown
+  allowed-extensions: pdf,doc,docx,ppt,pptx,xls,xlsx,zip,rar,7z,txt,log,csv,json,xml,yml,yaml,sql,java,py,js,jsx,ts,tsx,vue,css,scss,html,htm,jpg,jpeg,png,gif,webp,bmp,mp4,webm,mov,avi,mp3,wav,m4a,ogg,md,markdown
 
 # ---------- 邮件配置（测试环境） ----------
 email:

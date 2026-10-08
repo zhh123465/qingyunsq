@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
+import { EyeOffOutline, EyeOutline } from '@vicons/ionicons5';
 import { register, sendEmailCode } from '@/api/auth';
 import {
   getPasswordStrength,
@@ -20,7 +21,9 @@ const prefilledEmail = typeof route.query.email === 'string' ? route.query.email
 
 const email = ref(prefilledEmail);
 const password = ref('');
+const showPassword = ref(false);
 const confirmPassword = ref('');
+const showConfirmPassword = ref(false);
 const studentNo = ref('');
 const nickname = ref('');
 const emailCode = ref('');
@@ -200,14 +203,13 @@ onBeforeUnmount(() => {
   <nav class="bg-transparent docked full-width top-0 z-50">
     <div class="flex justify-between items-center px-margin-mobile md:px-margin-desktop w-full mx-auto">
       <div class="flex items-center gap-3">
-        <img src="@/assets/images/logo.png" alt="青云阁" class="w-8 h-8 rounded-lg object-cover" />
         <div class="font-headline-md text-[24px] font-extrabold tracking-tight h-[32px] overflow-hidden">
           <div class="flex flex-col rolling-text">
             <div class="h-[32px] flex items-center">
-              <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+              <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
             </div>
             <div class="h-[32px] flex items-center">
-              <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+              <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
             </div>
           </div>
         </div>
@@ -220,7 +222,7 @@ onBeforeUnmount(() => {
     <div class="glass-panel w-full max-w-[560px] rounded-apple p-8 md:p-12 relative overflow-hidden">
       <div class="text-center mb-8">
         <h1 class="font-headline-xl text-headline-xl text-primary mb-2">创建账号</h1>
-        <p class="font-body-md text-body-md text-on-surface-variant">填写基础信息加入社区</p>
+        <p class="font-body-md text-body-md text-on-surface-variant">填写基础信息开启个人知识库</p>
       </div>
 
       <form class="space-y-5" @submit.prevent="handleRegister">
@@ -292,14 +294,23 @@ onBeforeUnmount(() => {
             <input
               id="password"
               v-model="password"
-              type="password"
+              :type="showPassword ? 'text' : 'password'"
               placeholder="8-64 位，需包含字母和数字"
-              class="w-full bg-transparent border rounded-xl px-4 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
+              class="w-full bg-transparent border rounded-xl pl-4 pr-10 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
               :class="fieldState.password.touched && fieldState.password.error ? 'border-error focus:border-error focus:ring-error' : 'border-outline-variant focus:border-primary focus:ring-primary'"
               @focus="focusField('password')"
               @blur="blurField('password')"
               @input="runFieldValidation('password')"
             />
+            <button
+              type="button"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+              @click="showPassword = !showPassword"
+              tabindex="-1"
+            >
+              <EyeOffOutline v-if="showPassword" class="w-5 h-5" />
+              <EyeOutline v-else class="w-5 h-5" />
+            </button>
           </div>
           <div v-if="fieldState.password.active || password" class="mt-2 text-xs flex items-center gap-2" :class="{
             'text-error': passwordStrength.strength === 'weak',
@@ -328,14 +339,23 @@ onBeforeUnmount(() => {
             <input
               id="confirmPassword"
               v-model="confirmPassword"
-              type="password"
+              :type="showConfirmPassword ? 'text' : 'password'"
               placeholder="再次输入密码"
-              class="w-full bg-transparent border rounded-xl px-4 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
+              class="w-full bg-transparent border rounded-xl pl-4 pr-10 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
               :class="fieldState.confirmPassword.touched && fieldState.confirmPassword.error ? 'border-error focus:border-error focus:ring-error' : 'border-outline-variant focus:border-primary focus:ring-primary'"
               @focus="focusField('confirmPassword')"
               @blur="blurField('confirmPassword')"
               @input="runFieldValidation('confirmPassword')"
             />
+            <button
+              type="button"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+              @click="showConfirmPassword = !showConfirmPassword"
+              tabindex="-1"
+            >
+              <EyeOffOutline v-if="showConfirmPassword" class="w-5 h-5" />
+              <EyeOutline v-else class="w-5 h-5" />
+            </button>
           </div>
           <small v-if="fieldState.confirmPassword.touched && fieldState.confirmPassword.error" class="text-error text-xs mt-1 block">
             {{ fieldState.confirmPassword.error }}

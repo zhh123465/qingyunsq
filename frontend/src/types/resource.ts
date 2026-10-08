@@ -22,6 +22,11 @@ export interface ResourceVO {
   collectCount: number;
   version: string | null;
   description: string | null;
+  /** 0=隐藏 1=已发布 2=待审核 3=已驳回 */
+  status?: number;
+  /** 驳回原因（status=3 时有值），仅上传者本人可见 */
+  reviewReason?: string | null;
+  reviewedAt?: string | null;
   createdAt: string;
 }
 

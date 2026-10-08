@@ -11,20 +11,24 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {
 
+    static final String[] PUBLIC_AUTH_PATHS = {
+            "/api/v1/auth/login",
+            "/api/v1/auth/wechat-login",
+            "/api/v1/auth/github-login",
+            "/api/v1/auth/register",
+            "/api/v1/auth/email-code",
+            "/api/v1/auth/email-exists",
+            "/api/v1/auth/forgot-password",
+            "/api/v1/auth/reset-password"
+    };
+
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handle -> {
             // 对 /api/v1/** 路由应用判定
             SaRouter.match("/api/v1/**")
                     // 放行认证相关接口
-                    .notMatch(
-                            "/api/v1/auth/login",
-                            "/api/v1/auth/register",
-                            "/api/v1/auth/email-code",
-                            "/api/v1/auth/email-exists",
-                            "/api/v1/auth/forgot-password",
-                            "/api/v1/auth/reset-password"
-                    )
+                    .notMatch(PUBLIC_AUTH_PATHS)
                     // 放行租户和直连文件下载/预览接口，以及游客能调用的无副作用 POST 接口
                     .notMatch(
                             "/api/v1/tenant/info",
@@ -41,6 +45,7 @@ public class SaTokenConfig implements WebMvcConfigurer {
                             if (path.startsWith("/api/v1/auth/me") ||
                                 path.startsWith("/api/v1/notifications") ||
                                 path.startsWith("/api/v1/messages") ||
+                                path.startsWith("/api/v1/resources/mine") ||
                                 path.contains("/follow")) {
                                 StpUtil.checkLogin();
                             }

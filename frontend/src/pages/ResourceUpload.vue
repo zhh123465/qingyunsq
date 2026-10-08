@@ -54,7 +54,11 @@ async function submit() {
       description: description.value.trim() || undefined,
       spaceId: spaceId.value,
     });
-    message.success('上传成功');
+    if (resource.status === 2) {
+      message.success('上传成功，已提交审核，通过后对外可见');
+    } else {
+      message.success('上传成功');
+    }
     router.push(`/resources/${resource.id}`);
   } catch {
     message.error('上传失败');
@@ -83,16 +87,16 @@ function cancel() {
     <div class="form-grid">
       <NCard class="form-card" title="资源信息">
         <div class="form">
-          <label>选择文件（最大 50MB）</label>
+          <label>选择文件（最大 200MB）</label>
           <div class="upload-drop">
             <NUpload
               :max="1"
-              :accept="resourceAccept"
+              :accept="resourceAccept || undefined"
               @update:file-list="handleFileChange"
             >
               <NButton>选择文件</NButton>
             </NUpload>
-            <p>支持文档、课件、图片等常用学习资料。</p>
+            <p>支持任意类型文件（文档、课件、软件安装包等）。上传后需管理员审核，通过后对外可见。</p>
           </div>
           <div
             v-if="file"
@@ -155,6 +159,7 @@ function cancel() {
         <h3>上传建议</h3>
         <p>资源越容易被识别，越容易被收藏、下载和推荐。</p>
         <ul>
+          <li>上传的资源需管理员审核，审核结果会通过站内通知告知。</li>
           <li>课程名建议使用老师或课表里的正式名称。</li>
           <li>描述里写清适用章节、考试范围或版本。</li>
           <li>学习圈资料优先设置为空间内可见。</li>

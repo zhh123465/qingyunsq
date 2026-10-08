@@ -1,12 +1,14 @@
 package com.campusforum.post.service;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.campusforum.admin.dto.AdminCommentVO;
 import com.campusforum.common.BusinessException;
 import com.campusforum.common.ErrorCode;
 import com.campusforum.achievement.service.AchievementService;
 import com.campusforum.notify.service.NotifyService;
 import com.campusforum.infra.sanitize.HtmlSanitizerService;
 import com.campusforum.post.domain.Comment;
+import com.campusforum.post.domain.Post;
 import com.campusforum.post.domain.Reaction;
 import com.campusforum.post.dto.CommentVO;
 import com.campusforum.post.dto.CreateCommentRequest;
@@ -20,14 +22,22 @@ import com.campusforum.qa.mapper.QaQuestionMapper;
 import com.campusforum.user.domain.User;
 import com.campusforum.user.dto.PublicUserVO;
 import com.campusforum.user.mapper.UserMapper;
-import com.campusforum.notify.websocket.SessionRegistry;
+import com.campusforum.infra.websocket.BroadcastMessage;
+import com.campusforum.infra.websocket.WebSocketBroadcaster;
 import com.campusforum.sensitive.service.SensitiveWordService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.LinkedHashMap;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -51,7 +61,12 @@ public class CommentService {
     private final QaQuestionMapper qaQuestionMapper;
     private final ReactionMapper reactionMapper;
     private final SensitiveWordService sensitiveWordService;
-    private final SessionRegistry sessionRegistry;
+    private final WebSocketBroadcaster webSocketBroadcaster;
+
+    /** Self reference for AOP self-invocation (per-item transaction in batch purge). */
+    @Resource
+    @Lazy
+    private CommentService selfProxy;
     /**
      * HTML 净化服务（任务 T8.3 / 漏洞 18）：评论 / 回复内容写库前剥离 {@code <script>} /
      * 事件处理属性 / {@code javascript:} 协议 URL，避免存储型 XSS。
@@ -347,8 +362,8 @@ public class CommentService {
                     "action", action
             );
             String json = jsonMapper.writeValueAsString(payload);
-            // 通知帖子作者（如果在线）
-            sessionRegistry.sendToUser(postAuthorId, json);
+            // 通知帖子作者（如果在线，经 Redis pub/sub 跨实例广播）
+            webSocketBroadcaster.broadcast(new BroadcastMessage(postAuthorId, "COMMENT_CHANGE", json));
         } catch (Exception e) {
             log.debug("Failed to broadcast comment change: {}", e.getMessage());
         }
@@ -367,6 +382,163 @@ public class CommentService {
                 .author(authorVO)
                 .content(comment.getContent())
                 .likeCount(comment.getLikeCount())
+                .createdAt(comment.getCreatedAt())
+                .build();
+    }
+
+    // === 管理端：列表 / 隐藏 / 逻辑删 / 回收站恢复 / 彻底删除 ===
+
+    public IPage<AdminCommentVO> listForAdminPaged(String keyword, Long postId, Long authorId,
+                                                   Integer status, long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Comment> page = new Page<>(pageNum, size);
+        LambdaQueryWrapper<Comment> qw = new LambdaQueryWrapper<>();
+        if (keyword != null && !keyword.isBlank()) qw.like(Comment::getContent, keyword);
+        if (postId != null) qw.eq(Comment::getPostId, postId);
+        if (authorId != null) qw.eq(Comment::getAuthorId, authorId);
+        if (status != null) qw.eq(Comment::getStatus, status);
+        qw.orderByDesc(Comment::getId);
+        IPage<Comment> res = commentMapper.selectPage(page, qw);
+        return res.convert(this::toAdminVO);
+    }
+
+    public IPage<AdminCommentVO> listTrashForAdminPaged(String keyword, Long postId, Long authorId,
+                                                       long pageNum, long pageSize) {
+        long size = Math.min(pageSize, 100);
+        Page<Comment> page = new Page<>(pageNum, size);
+        QueryWrapper<Comment> qw = new QueryWrapper<>();
+        qw.lambda().like(keyword != null && !keyword.isBlank(), Comment::getContent, keyword)
+                .eq(postId != null, Comment::getPostId, postId)
+                .eq(authorId != null, Comment::getAuthorId, authorId)
+                .orderByDesc(Comment::getId);
+        IPage<Comment> res = commentMapper.selectTrashPage(page, qw);
+        return res.convert(this::toAdminVO);
+    }
+
+    @Transactional
+    public void setStatusForAdmin(Long commentId, Integer status) {
+        if (status == null || (status != 0 && status != 1)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "无效的状态值");
+        }
+        Comment c = commentMapper.selectById(commentId);
+        if (c == null || c.getDeleted() == 1) {
+            throw new BusinessException(ErrorCode.COMMENT_NOT_FOUND);
+        }
+        c.setStatus(status);
+        commentMapper.updateById(c);
+    }
+
+    @Transactional
+    public void deleteByAdmin(Long commentId) {
+        Comment c = commentMapper.selectById(commentId);
+        if (c == null || c.getDeleted() == 1) {
+            throw new BusinessException(ErrorCode.COMMENT_NOT_FOUND);
+        }
+        commentMapper.deleteById(commentId);
+        postMapper.incrementCommentCount(c.getPostId(), -1);
+    }
+
+    @Transactional
+    public void restoreForAdmin(Long commentId) {
+        int rows = commentMapper.restoreById(commentId);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.COMMENT_NOT_FOUND);
+        }
+        // 恢复时把评论数补回，尽量对齐真实计数（若帖子被 purge 则忽略）
+        Comment c = commentMapper.selectById(commentId);
+        if (c != null) {
+            postMapper.incrementCommentCount(c.getPostId(), 1);
+        }
+    }
+
+    /** 彻底删除评论 + 相关点赞。 */
+    @Transactional
+    public Map<String, Integer> purgeForAdmin(Long commentId) {
+        int reactions = reactionMapper.physicalDeleteByTarget("COMMENT", commentId);
+        int self = commentMapper.physicalDeleteById(commentId);
+        if (self == 0) {
+            throw new BusinessException(ErrorCode.COMMENT_NOT_FOUND.getCode(),
+                    "评论不在回收站或已被清理");
+        }
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        counts.put("reactions", reactions);
+        return counts;
+    }
+
+    // === 批量管理端操作 ===
+    public int setStatusBatchForAdmin(List<Long> ids, int status) {
+        return commentMapper.batchSetStatus(ids, status);
+    }
+
+    public int deleteBatchForAdmin(List<Long> ids) {
+        // 需要减 post.comment_count；先查出即将被删的评论对应的 postId 计数分布
+        LambdaQueryWrapper<Comment> qw = new LambdaQueryWrapper<Comment>()
+                .in(Comment::getId, ids)
+                .eq(Comment::getDeleted, 0);
+        List<Comment> before = commentMapper.selectList(qw);
+        Map<Long, Long> byPost = before.stream()
+                .collect(Collectors.groupingBy(Comment::getPostId, Collectors.counting()));
+        int rows = commentMapper.batchLogicalDelete(ids);
+        byPost.forEach((pid, cnt) -> postMapper.incrementCommentCount(pid, -cnt.intValue()));
+        return rows;
+    }
+
+    public int restoreBatchForAdmin(List<Long> ids) {
+        int rows = commentMapper.batchRestore(ids);
+        // 恢复后按 postId 汇总补回计数（走 selectList，走 @TableLogic 自动 deleted=0）
+        LambdaQueryWrapper<Comment> qw = new LambdaQueryWrapper<Comment>().in(Comment::getId, ids);
+        List<Comment> after = commentMapper.selectList(qw);
+        Map<Long, Long> byPost = after.stream()
+                .collect(Collectors.groupingBy(Comment::getPostId, Collectors.counting()));
+        byPost.forEach((pid, cnt) -> postMapper.incrementCommentCount(pid, cnt.intValue()));
+        return rows;
+    }
+
+    public Map<String, Object> purgeBatchForAdmin(List<Long> ids) {
+        int success = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+        Map<String, Integer> totalCounts = new LinkedHashMap<>();
+        for (Long id : ids) {
+            try {
+                Map<String, Integer> c = selfProxy.purgeForAdmin(id);
+                success++;
+                c.forEach((k, v) -> totalCounts.merge(k, v, Integer::sum));
+            } catch (BusinessException e) {
+                Map<String, Object> f = new LinkedHashMap<>();
+                f.put("id", id);
+                f.put("reason", e.getMessage() != null ? e.getMessage() : "PURGE_FAILED");
+                failed.add(f);
+            } catch (Exception e) {
+                log.warn("purge comment failed: id={}, msg={}", id, e.getMessage());
+                Map<String, Object> f = new LinkedHashMap<>();
+                f.put("id", id);
+                f.put("reason", "PURGE_FAILED");
+                failed.add(f);
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", success);
+        result.put("failed", failed);
+        result.put("counts", totalCounts);
+        return result;
+    }
+
+    private AdminCommentVO toAdminVO(Comment comment) {
+        User author = userMapper.selectById(comment.getAuthorId());
+        PublicUserVO authorVO = PublicUserVO.from(author);
+        Post post = postMapper.selectById(comment.getPostId());
+        String postTitle = post != null ? post.getTitle() : null;
+        return AdminCommentVO.builder()
+                .id(comment.getId())
+                .postId(comment.getPostId())
+                .postTitle(postTitle)
+                .parentId(comment.getParentId())
+                .replyToId(comment.getReplyToId())
+                .authorId(comment.getAuthorId())
+                .author(authorVO)
+                .content(comment.getContent())
+                .likeCount(comment.getLikeCount())
+                .status(comment.getStatus())
                 .createdAt(comment.getCreatedAt())
                 .build();
     }

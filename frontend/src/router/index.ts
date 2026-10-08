@@ -51,8 +51,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'square',
         name: 'square',
-        component: () => import('@/pages/Square.vue'),
-        meta: { requiresAuth: true },
+        redirect: '/resources',
       },
       {
         path: 'posts/new',
@@ -69,8 +68,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'spaces',
         name: 'spaces',
-        component: () => import('@/pages/Spaces.vue'),
-        meta: { requiresAuth: true },
+        redirect: '/learning',
       },
       {
         path: 'spaces/new',
@@ -103,6 +101,36 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true },
       },
       {
+        path: 'tools',
+        name: 'tools',
+        component: () => import('@/pages/FeaturePlaceholder.vue'),
+        meta: { requiresAuth: true, title: '工具' },
+      },
+      {
+        path: 'software',
+        name: 'software',
+        component: () => import('@/pages/FeaturePlaceholder.vue'),
+        meta: { requiresAuth: true, title: '软件' },
+      },
+      {
+        path: 'learning',
+        name: 'learning',
+        component: () => import('@/pages/Learning.vue'),
+        meta: { requiresAuth: true, title: '学习' },
+      },
+      {
+        path: 'learning/notes/:id',
+        name: 'learning-note-detail',
+        component: () => import('@/pages/NotePublicDetail.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: 'learning/tutorial/:id',
+        name: 'tutorial-reader',
+        component: () => import('@/pages/TutorialReader.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
         path: 'resources/upload',
         name: 'resource-upload',
         component: () => import('@/pages/ResourceUpload.vue'),
@@ -122,26 +150,30 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'ai',
-        name: 'ai-assistant',
-        component: () => import('@/pages/AiAssistant.vue'),
+        redirect: '/ai/chat',
+      },
+      {
+        path: 'ai/chat',
+        name: 'ai-chat',
+        component: () => import('@/pages/ai/AiChat.vue'),
         meta: { requiresAuth: true },
       },
       {
-        path: 'ai/wikis',
-        name: 'ai-wikis',
-        component: () => import('@/pages/AiAssistant.vue'),
+        path: 'ai/libraries',
+        name: 'ai-libraries',
+        component: () => import('@/pages/ai/KnowledgeLibraries.vue'),
         meta: { requiresAuth: true },
       },
       {
-        path: 'ai/discover',
-        name: 'ai-discover',
-        component: () => import('@/pages/AiAssistant.vue'),
+        path: 'ai/libraries/:id',
+        name: 'ai-library-detail',
+        component: () => import('@/pages/ai/KnowledgeBaseDetail.vue'),
         meta: { requiresAuth: true },
       },
       {
-        path: 'ai/wikis/:id',
-        name: 'ai-wiki-detail',
-        component: () => import('@/pages/AiAssistant.vue'),
+        path: 'ai/notes',
+        name: 'ai-notes',
+        component: () => import('@/pages/ai/KnowledgeNotes.vue'),
         meta: { requiresAuth: true },
       },
       {
@@ -154,6 +186,18 @@ const routes: RouteRecordRaw[] = [
         path: 'messages',
         name: 'messages',
         component: () => import('@/pages/Messages.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: 'announcements',
+        name: 'announcements',
+        component: () => import('@/pages/Announcements.vue'),
+        meta: { requiresAuth: true, title: '公告' },
+      },
+      {
+        path: 'announcements/:id',
+        name: 'announcement-detail',
+        component: () => import('@/pages/AnnouncementDetail.vue'),
         meta: { requiresAuth: true },
       },
     ],
@@ -187,6 +231,31 @@ const routes: RouteRecordRaw[] = [
         path: 'audit-logs',
         name: 'admin-audit-logs',
         component: () => import('@/pages/admin/AdminAuditLog.vue'),
+      },
+      {
+        path: 'resources',
+        name: 'admin-resources',
+        component: () => import('@/pages/admin/AdminResources.vue'),
+      },
+      {
+        path: 'notes',
+        name: 'admin-notes',
+        component: () => import('@/pages/admin/AdminNotes.vue'),
+      },
+      {
+        path: 'checkin',
+        name: 'admin-checkin',
+        component: () => import('@/pages/admin/AdminCheckin.vue'),
+      },
+      {
+        path: 'comments',
+        name: 'admin-comments',
+        component: () => import('@/pages/admin/AdminComments.vue'),
+      },
+      {
+        path: 'announcements',
+        name: 'admin-announcements',
+        component: () => import('@/pages/admin/AdminAnnouncements.vue'),
       },
       {
         path: 'reports',
@@ -235,9 +304,8 @@ router.beforeEach((to, _from, next) => {
   const isGuest = role === 'GUEST';
   const allowedGuestPaths = [
     '/',
-    '/square',
-    '/spaces',
     '/resources',
+    '/announcements',
     '/login',
     '/register',
     '/forgot-password',
@@ -245,16 +313,17 @@ router.beforeEach((to, _from, next) => {
   const isAllowedGuestPath =
     allowedGuestPaths.includes(to.path) ||
     (to.path.startsWith('/posts/') && to.path !== '/posts/new') ||
-    to.path.startsWith('/spaces/');
+    to.path.startsWith('/resources/') ||
+    to.path.startsWith('/announcements/');
 
   if (to.meta.requiresAuth && !token) {
     next('/login');
   } else if (isGuest && to.meta.requiresAuth && !isAllowedGuestPath) {
     next('/login');
   } else if (to.meta.guest && token && !isGuest) {
-    next('/square');
+    next('/resources');
   } else if (to.path === '/' && token && !isGuest) {
-    next('/square');
+    next('/resources');
   } else if (to.meta.requiresAdmin && role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') {
     next('/');
   } else {

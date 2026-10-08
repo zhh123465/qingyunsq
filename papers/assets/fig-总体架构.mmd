@@ -1,0 +1,31 @@
+graph TB
+  U[高校用户 浏览器 / PWA]
+  subgraph 访问层
+    N[Nginx 反向代理]
+  end
+  subgraph 应用层
+    B[Spring Boot 3.3 单体应用<br/>32 Controller · 40 Service · 33 Mapper]
+  end
+  subgraph 服务层
+    C1[Sa-Token 认证]
+    C2[MyBatis-Plus ORM<br/>租户插件]
+    C3[TenantAwareAiService<br/>AI 委托]
+    C4[SafeHttpClient<br/>SSRF 防御]
+    C5[HtmlSanitizer<br/>XSS 消毒]
+  end
+  subgraph 数据层
+    D1[(MySQL 8<br/>34 张业务表)]
+    D2[(Redis 7<br/>会话+缓存)]
+    D3[(MeiliSearch<br/>全文检索)]
+    D4[阿里云 OSS<br/>对象存储]
+  end
+  U -->|HTTPS| N
+  N -->|/api /ws /uploads| B
+  N -->|静态资源| U
+  B --> C1 --> D2
+  B --> C2 --> D1
+  B --> C3
+  B --> C4
+  B --> C5
+  B --> D3
+  B --> D4

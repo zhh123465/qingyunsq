@@ -55,6 +55,26 @@ public class SmtpEmailService implements EmailService {
         }
     }
 
+    @Override
+    public void sendNotice(String toEmail, String subject, String htmlContent) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(emailProperties.getFrom());
+            helper.setTo(toEmail);
+            helper.setSubject(subject);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+            log.info("Notice email sent to: {}, subject={}", maskEmail(toEmail), subject);
+        } catch (Exception e) {
+            // 通知类邮件失败只记日志，由调用方决定是否重试
+            log.error("Failed to send notice email: {}", e.getMessage());
+            throw new IllegalStateException("通知邮件发送失败", e);
+        }
+    }
+
     private String buildCodeHtmlContent(EmailCodeScene scene, String code, int expireMinutes) {
         String appName = emailProperties.getAppName();
         return """

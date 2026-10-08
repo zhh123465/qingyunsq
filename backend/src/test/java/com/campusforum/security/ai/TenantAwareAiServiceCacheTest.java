@@ -74,7 +74,7 @@ class TenantAwareAiServiceCacheTest {
     private static final String OPENAI_PROVIDER = "openai";
     private static final String VALID_BASE_URL = "https://api.deepseek.com/v1";
     private static final String VALID_API_KEY = "sk-fake-test-key-001";
-    private static final String VALID_MODEL = "deepseek-chat";
+    private static final String VALID_MODEL = "deepseek-v4-flash";
 
     @BeforeEach
     void setUp() {

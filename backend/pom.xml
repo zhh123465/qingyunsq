@@ -61,6 +61,13 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
+        <!-- Flyway：数据库自动迁移，替代手工执行 db/migrations/*.sql。
+             版本由 spring-boot-starter-parent 3.3.0 管理，与 MySQL 8.0 兼容。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
         <!-- MyBatis-Plus -->
         <dependency>
             <groupId>com.baomidou</groupId>
@@ -133,6 +140,20 @@
             <version>20240325.1</version>
         </dependency>
 
+        <!-- Jsoup：解析抓取到的教程 HTML（仅解析，不联网；抓取走 SafeHttpClient） -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+
+        <!-- Flexmark html2md：外部笔记同步用，把抓到的 HTML 正文转 Markdown 存入 ai_notes -->
+        <dependency>
+            <groupId>com.vladsch.flexmark</groupId>
+            <artifactId>flexmark-html2md-converter</artifactId>
+            <version>0.64.8</version>
+        </dependency>
+
         <!-- Apache POI for XLSX export -->
         <dependency>
             <groupId>org.apache.poi</groupId>
@@ -145,6 +166,13 @@
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
             <version>2.9.2</version>
+        </dependency>
+
+        <!-- PDF 文本抽取（知识库真实 RAG 文档切块，2026-07-12） -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>2.0.31</version>
         </dependency>
 
         <!-- Lombok -->

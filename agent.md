@@ -1,5 +1,8 @@
 # CampusForum Agent Notes
 
+> ⚠️ **本文件已被根目录 [`agents.md`](agents.md) 取代**（后者是更完整、更新的项目理解文档，含完整架构、API 速查表与陷阱清单）。
+> 本文件内容是 `agents.md` 的子集，保留作历史参考；如有冲突以 `agents.md` 与源码为准。
+
 本文档给后续自动化 agent 或维护者使用，记录当前工作区的源码事实与操作注意事项。以源码为准，文档和 deploy 配置如果冲突，优先检查 `backend/src/main/resources/*.yml`、Controller、Service 与前端 API 封装。
 
 ## 项目概览

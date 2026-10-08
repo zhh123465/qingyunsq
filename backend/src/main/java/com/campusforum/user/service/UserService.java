@@ -22,6 +22,10 @@ import com.campusforum.user.dto.RegisterRequest;
 import com.campusforum.user.dto.UpdateProfileRequest;
 import com.campusforum.user.dto.UserVO;
 import com.campusforum.user.mapper.UserMapper;
+import com.campusforum.ai.workspace.domain.AiKnowledgeBase;
+import com.campusforum.ai.workspace.domain.AiKbQaPair;
+import com.campusforum.ai.workspace.mapper.AiKnowledgeBaseMapper;
+import com.campusforum.ai.workspace.mapper.AiKbQaPairMapper;
 import com.campusforum.wechat.service.WechatCodeSession;
 import com.campusforum.wechat.service.WechatMiniProgramClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -75,7 +79,26 @@ public class UserService {
     /** 安全监控埋点（敏感凭证变更后强制踢下线计数）。 */
     private final SecurityMetrics securityMetrics;
     private final WechatMiniProgramClient wechatMiniProgramClient;
+    private final AiKnowledgeBaseMapper kbMapper;
+    private final AiKbQaPairMapper qaMapper;
     private final SecureRandom secureRandom = new SecureRandom();
+
+    /** 用户搜索索引同步（setter 注入，避免影响测试中的手工构造器）。 */
+    private com.campusforum.search.service.SearchIndexService searchIndexService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSearchIndexService(com.campusforum.search.service.SearchIndexService searchIndexService) {
+        this.searchIndexService = searchIndexService;
+    }
+
+    /** 索引同步 best-effort：任何异常都不影响主业务流程。 */
+    private void syncUserIndex(User user) {
+        if (searchIndexService == null || user == null) return;
+        try {
+            searchIndexService.indexUser(user);
+        } catch (Exception e) {
+            log.debug("User search index sync failed for id={}: {}", user.getId(), e.getMessage());
+        }
+    }
 
     /**
      * 固定 BCrypt hash，仅用于用户不存在时消耗等量 CPU 时间，防止时序攻击。
@@ -109,12 +132,58 @@ public class UserService {
                 log.warn("Wechat login unique-key conflict for openid={}: {}", session.openid(), e.getMessage());
                 throw new BusinessException(ErrorCode.INVALID_CREDENTIALS.getCode(), "微信登录失败，请稍后重试");
             }
+            // 新用户自动获得一个"AI知识库使用指南"知识库
+            seedWelcomeKnowledgeBase(user);
+            syncUserIndex(user);
         } else if (user.getStatus() == 0) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS.getCode(), "账号不可用");
         } else if (StringUtils.hasText(session.unionid())
                 && !session.unionid().equals(user.getWechatUnionid())) {
             user.setWechatUnionid(session.unionid());
             userMapper.updateById(user);
+        }
+
+        return completeLogin(user);
+    }
+
+    /**
+     * GitHub 授权码登录（2026-07-12）：按 (tenant_id, github_id) 定位账号，
+     * 首登自动建号（随机 BCrypt 密码 + GitHub 昵称/头像），与微信登录同构。
+     */
+    @Transactional
+    public UserVO loginByGithub(com.campusforum.social.service.GithubUserInfo info) {
+        long tid = requireTenantId();
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getTenantId, tid)
+                .eq(User::getGithubId, info.id()));
+
+        if (user == null) {
+            user = new User();
+            user.setTenantId(tid);
+            user.setEmail("github_" + info.id() + "@github.local");
+            user.setPasswordHash(BCrypt.hashpw(randomPassword(), BCrypt.gensalt(10)));
+            String nickname = StringUtils.hasText(info.name()) ? info.name()
+                    : (StringUtils.hasText(info.login()) ? info.login() : "GitHub用户");
+            user.setNickname(nickname.length() > 64 ? nickname.substring(0, 64) : nickname);
+            // GitHub 头像域名固定为 avatars.githubusercontent.com，属可信来源；
+            // 为空时退回 dicebear 占位头像（与微信登录一致）。
+            user.setAvatarUrl(StringUtils.hasText(info.avatarUrl()) ? info.avatarUrl()
+                    : "https://api.dicebear.com/7.x/initials/svg?seed=GitHub");
+            user.setGithubId(info.id());
+            user.setRole("USER");
+            user.setStatus(1);
+            try {
+                userMapper.insert(user);
+            } catch (DuplicateKeyException e) {
+                log.warn("GitHub login unique-key conflict for githubId={}: {}", info.id(), e.getMessage());
+                throw new BusinessException(ErrorCode.INVALID_CREDENTIALS.getCode(), "GitHub 登录失败，请稍后重试");
+            }
+            // 新用户自动获得一个"AI知识库使用指南"知识库
+            seedWelcomeKnowledgeBase(user);
+            syncUserIndex(user);
+            log.info("GitHub user registered: id={}, githubId={}", user.getId(), info.id());
+        } else if (user.getStatus() == 0) {
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS.getCode(), "账号不可用");
         }
 
         return completeLogin(user);
@@ -167,6 +236,10 @@ public class UserService {
             log.warn("Register unique-key conflict for email={}: {}", email, e.getMessage());
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "该邮箱或学号已注册");
         }
+
+        // 新用户自动获得一个"AI知识库使用指南"知识库
+        seedWelcomeKnowledgeBase(user);
+        syncUserIndex(user);
 
         // 验证码在 insert 成功之后才消费（删除 Redis key）：
         // - 验证码错误：verifyAndConsume 抛异常 → @Transactional 回滚刚插入的 user，
@@ -285,6 +358,9 @@ public class UserService {
         user.setLastLoginAt(LocalDateTime.now());
         userMapper.updateById(user);
 
+        // 老用户自检：如果从未种过使用指南则补种（一次性；用户删掉后不再重种）
+        seedWelcomeKnowledgeBase(user);
+
         log.info("User logged in: id={}", user.getId());
 
         UserVO vo = toVO(user);
@@ -397,6 +473,7 @@ public class UserService {
         if (req.getGrade() != null) user.setGrade(req.getGrade());
 
         userMapper.updateById(user);
+        syncUserIndex(user);
         log.info("User profile updated: id={}", userId);
         return toVO(user);
     }
@@ -504,6 +581,7 @@ public class UserService {
         ensureCallerWeightSufficient(user.getRole());
         user.setStatus(0);
         userMapper.updateById(user);
+        syncUserIndex(user);
         // 角色被封禁后强制下线，避免被封用户继续持有合法 token 直到过期
         StpUtil.kickout(userId);
         log.info("User banned: id={}", userId);
@@ -518,6 +596,7 @@ public class UserService {
         ensureCallerWeightSufficient(user.getRole());
         user.setStatus(1);
         userMapper.updateById(user);
+        syncUserIndex(user);
         log.info("User unbanned: id={}", userId);
     }
 
@@ -768,5 +847,100 @@ public class UserService {
                 .lastLoginAt(user.getLastLoginAt())
                 .createdAt(user.getCreatedAt())
                 .build();
+    }
+
+    // ======================== Welcome knowledge base seed ========================
+
+    /**
+     * 新用户注册或老用户登录时自动创建一个"AI知识库使用指南"知识库。
+     * 一次性：以 users.welcome_kb_seeded 标记为准，种过一次就永久标记；
+     * 用户后续删除这份 KB 后不会被登录自检重种。
+     * 失败不影响主流程（注册/登录），仅记日志。
+     */
+    private void seedWelcomeKnowledgeBase(User user) {
+        if (user == null || user.getId() == null) return;
+        Integer seeded = user.getWelcomeKbSeeded();
+        if (seeded != null && seeded == 1) return;
+        long userId = user.getId();
+        try {
+            String kbId = "kb_" + shortKbId();
+            AiKnowledgeBase kb = new AiKnowledgeBase();
+            kb.setId(kbId);
+            kb.setName("AI知识库使用指南");
+            kb.setDescription("本站AI知识库功能说明，帮助您快速上手");
+            kb.setCategory("学习资料");
+            kb.setType("使用指南");
+            kb.setVisibility("private");
+            kb.setDocumentCount(0L);
+            kb.setVectorCount(0L);
+            kb.setStorageBytes(0L);
+            kb.setOwnerId(userId);
+            kb.setDeleted(0);
+            kbMapper.insert(kb);
+
+            // 逐条插入问答对，每条都能单独出现在知识库问答列表里
+            seedQa(kbId, "什么是AI知识库？",
+                    "AI知识库是本站AI助手的「外部记忆」——你可以向知识库上传文档或添加问答对，" +
+                    "AI在对话中会检索知识库内容，给出更贴合你提供的资料的答案。\n\n" +
+                    "典型用法：\n" +
+                    "- 上传课程讲义，向AI提问课程相关问题\n" +
+                    "- 添加产品文档，让AI充当智能客服\n" +
+                    "- 整理复习笔记，用AI帮助理解和记忆");
+            seedQa(kbId, "如何创建知识库？",
+                    "进入「AI助手」-「我的知识库」页面，点击「+ 新建知识库」按钮，填写名称、选择分类即可。\n\n" +
+                    "分类包括：通用、产品文档、技术文档、学习资料、公司制度、市场与销售。\n" +
+                    "知识库默认是私有的（仅自己可见），创建后可以随时修改名称、描述和分类。");
+            seedQa(kbId, "如何上传文档？",
+                    "在知识库详情页点击上传按钮，选择本地文件即可。\n\n" +
+                    "支持多种常见文件格式（PDF、Word、TXT、Markdown 等），上传后系统会自动解析文档内容并生成向量索引，" +
+                    "供AI对话时检索。上传进度可在知识库详情中查看。");
+            seedQa(kbId, "什么是问答对（QA Pair）？",
+                    "问答对是你手动添加的「问题-答案」组合，适合以下场景：\n\n" +
+                    "- 补充AI不掌握的内部知识（规章制度、操作流程等）\n" +
+                    "- 纠正AI对特定问题的回答偏差\n" +
+                    "- 为常见问题预设标准答案，提高回答一致性\n\n" +
+                    "每个问答对支持添加标签，方便分类检索。");
+            seedQa(kbId, "如何在AI对话中使用知识库？",
+                    "有两种方式将知识库关联到AI对话：\n\n" +
+                    "1. 在知识库列表页点击任意知识库卡片，会跳转到AI对话页并自动关联该知识库\n" +
+                    "2. 在对话界面中手动选择要关联的知识库\n\n" +
+                    "关联后，AI在生成回答时会自动检索知识库中相关的内容，优先基于知识库资料作答。");
+            seedQa(kbId, "知识库可以分享给别人吗？",
+                    "可以。在知识库操作中选择「分享」，输入对方的用户ID并设置权限，即可将知识库分享给其他用户。\n\n" +
+                    "分享目前支持只读权限，对方可以查看和使用知识库内容，但不能修改。分享链接有效期为7天。");
+            seedQa(kbId, "知识库有容量限制吗？",
+                    "当前平台为每位用户提供 50 GB 的知识库存储空间（所有知识库共享）。\n\n" +
+                    "你可以在「我的知识库」页面右侧面板中查看当前存储用量。单个文档没有大小限制，" +
+                    "但建议单个文档不超过 100 MB 以保证解析性能。");
+            seedQa(kbId, "如何删除知识库或文档？",
+                    "删除知识库：在知识库卡片上悬停，点击右上角出现的删除图标即可。\n" +
+                    "删除文档：进入知识库详情，在文档列表中找到要删除的文档，点击删除。\n\n" +
+                    "注意：删除操作不可逆，知识库删除后关联的文档和问答对也会一并移除。");
+            // 绕过 service 层直接通过 mapper 插入了 QA，需手动更新计数
+            kb.setQaPairCount(8L);
+            kbMapper.updateById(kb);
+
+            // 种植成功后打上一次性标记（失败会走 catch 分支，不会打标记，下次仍会重试）
+            user.setWelcomeKbSeeded(1);
+            userMapper.updateById(user);
+
+            log.info("Welcome knowledge base seeded for user {}: kbId={}", userId, kbId);
+        } catch (Exception e) {
+            // 创建失败不影响注册主流程
+            log.warn("Failed to seed welcome knowledge base for user {}: {}", userId, e.getMessage());
+        }
+    }
+
+    private void seedQa(String kbId, String question, String answer) {
+        AiKbQaPair qa = new AiKbQaPair();
+        qa.setId("qa_" + shortKbId());
+        qa.setKnowledgeBaseId(kbId);
+        qa.setQuestion(question);
+        qa.setAnswer(answer);
+        qaMapper.insert(qa);
+    }
+
+    private static String shortKbId() {
+        return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
     }
 }

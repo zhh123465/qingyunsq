@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
-import { ArrowForwardOutline, LogoWechat, LogoGithub } from '@vicons/ionicons5';
+import { ArrowForwardOutline, EyeOffOutline, EyeOutline, LogoWechat, LogoGithub } from '@vicons/ionicons5';
 import {
   checkEmailExists,
+  getGithubAuthorizeUrl,
   login,
   loginWithEmailCode,
+  loginWithGithubCode,
   loginWithWechatCode,
   sendEmailCode,
 } from '@/api/auth';
@@ -19,11 +21,13 @@ const authStore = useAuthStore();
 
 const email = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const emailCode = ref('');
 const loginMode = ref<'password' | 'code'>('password');
 const loading = ref(false);
 const codeLoading = ref(false);
 const wechatLoading = ref(false);
+const githubLoading = ref(false);
 const codeCountdown = ref(0);
 let codeTimer: number | undefined;
 const fieldState = ref({
@@ -47,6 +51,13 @@ onMounted(() => {
   const wechatCode = params.get('wechat_code') || params.get('code');
   if (wechatCode && params.get('source') === 'wechat-mini-program') {
     void completeWechatLogin(wechatCode);
+    return;
+  }
+  // GitHub OAuth 回调：GitHub 授权后 302 回 /login?code=..&state=..
+  const githubCode = params.get('code');
+  const githubState = params.get('state');
+  if (githubCode && githubState) {
+    void completeGithubLogin(githubCode, githubState);
   }
 });
 
@@ -174,7 +185,7 @@ async function handleLogin() {
       localStorage.removeItem('rememberedPassword');
     }
     message.success('登录成功');
-    router.push('/square');
+    router.push('/resources');
   } catch {
     message.error(loginMode.value === 'password' ? '邮箱或密码错误' : '邮箱或验证码错误');
     resetLoginForm();
@@ -188,7 +199,49 @@ function handleSocialLogin(provider: string) {
     void handleWechatLogin();
     return;
   }
+  if (provider === 'GitHub') {
+    void handleGithubLogin();
+    return;
+  }
   message.info(`${provider} 登录暂未开放，请先使用邮箱登录或验证码登录`);
+}
+
+async function handleGithubLogin() {
+  if (githubLoading.value) return;
+  githubLoading.value = true;
+  try {
+    const res = await getGithubAuthorizeUrl();
+    if (!res.enabled || !res.url) {
+      message.info('GitHub 登录暂未开放，请先使用邮箱登录或验证码登录');
+      return;
+    }
+    // 跳转 GitHub 授权页，授权后 GitHub 会带 code/state 回到 /login
+    window.location.href = res.url;
+  } catch {
+    message.error('GitHub 登录发起失败，请稍后重试');
+  } finally {
+    githubLoading.value = false;
+  }
+}
+
+async function completeGithubLogin(code: string, state: string) {
+  githubLoading.value = true;
+  // 清掉地址栏里的一次性 code/state，防止刷新页面重复消费已失效的授权码
+  window.history.replaceState({}, '', window.location.pathname);
+  try {
+    const res = await loginWithGithubCode(code, state);
+    authStore.setToken(res.token);
+    authStore.setUser(res.user);
+    if (res.tenantId && res.tenantCode) {
+      authStore.setTenant(res.tenantId, res.tenantCode);
+    }
+    message.success('GitHub 登录成功');
+    router.push('/resources');
+  } catch (err: unknown) {
+    message.error(err instanceof Error ? err.message : 'GitHub 登录失败，请重新尝试');
+  } finally {
+    githubLoading.value = false;
+  }
 }
 
 async function completeWechatLogin(code: string) {
@@ -201,7 +254,7 @@ async function completeWechatLogin(code: string) {
       authStore.setTenant(res.tenantId, res.tenantCode);
     }
     message.success('微信登录成功');
-    router.push('/square');
+    router.push('/resources');
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '微信登录失败，请重新尝试');
   } finally {
@@ -244,8 +297,8 @@ function handleGuestLogin() {
     email: 'guest@campus.edu',
     role: 'GUEST',
   });
-  message.success('已以游客身份进入社区');
-  router.push('/square');
+  message.success('已以游客身份进入知识库');
+  router.push('/resources');
 }
 
 onBeforeUnmount(() => {
@@ -271,16 +324,15 @@ onBeforeUnmount(() => {
         class="flex justify-between items-center px-margin-mobile md:px-margin-desktop py-stack-md w-full mx-auto"
       >
         <div class="flex items-center gap-3">
-          <img src="@/assets/images/logo.png" alt="青云阁" class="w-8 h-8 rounded-lg object-cover" />
           <div
             class="font-headline-md text-[24px] font-extrabold tracking-tight h-[32px] overflow-hidden"
           >
             <div class="flex flex-col rolling-text">
               <div class="h-[32px] flex items-center">
-                <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+                <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
               </div>
               <div class="h-[32px] flex items-center">
-                <span class="text-gray-400/70 dark:text-gray-500/70">青云阁</span>
+                <span class="text-gray-400/70 dark:text-gray-500/70">小青知识库</span>
               </div>
             </div>
           </div>
@@ -355,9 +407,9 @@ onBeforeUnmount(() => {
                   <input
                     id="password"
                     v-model="password"
-                    type="password"
+                    :type="showPassword ? 'text' : 'password'"
                     placeholder="请输入密码"
-                    class="w-full bg-transparent border rounded-xl px-4 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
+                    class="w-full bg-transparent border rounded-xl pl-4 pr-10 py-3 font-body-md text-body-md text-on-surface focus:ring-1 transition-colors outline-none"
                     :class="
                       fieldState.password.touched && fieldState.password.error
                         ? 'border-error focus:border-error focus:ring-error'
@@ -367,6 +419,15 @@ onBeforeUnmount(() => {
                     @blur="blurField('password')"
                     @input="runFieldValidation('password')"
                   />
+                  <button
+                    type="button"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                    @click="showPassword = !showPassword"
+                    tabindex="-1"
+                  >
+                    <EyeOffOutline v-if="showPassword" class="w-5 h-5" />
+                    <EyeOutline v-else class="w-5 h-5" />
+                  </button>
                 </div>
                 <small
                   v-if="fieldState.password.touched && fieldState.password.error"

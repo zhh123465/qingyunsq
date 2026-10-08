@@ -35,7 +35,13 @@ public class MyBatisPlusConfig {
      * 真正需要忽略的是 {@code tenants}（租户表自身）与 {@code achievements}（全局字典）。</p>
      */
     public static final Set<String> TENANT_IGNORE_TABLES = Set.of(
-            "tenants", "achievements"
+            "tenants", "achievements",
+            // AI 工作台子表：租户由其父表（ai_knowledge_bases / ai_conversations / users）的 tenant_id 决定，
+            // 本身不设 tenant_id 列，以免出现子表与父表 tenant_id 不一致导致越权读取。
+            "ai_kb_documents", "ai_kb_qa_pairs", "ai_ingest_tasks", "ai_kb_chunks",
+            "ai_messages", "ai_user_favorites",
+            // 学习教程为全站共享公益内容（抓取自公开来源），对所有租户/用户一致，不做租户隔离。
+            "learning_tutorials", "learning_lessons"
     );
 
     @Bean

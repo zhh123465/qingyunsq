@@ -1,0 +1,40 @@
+graph TB
+  UI["前端 AiChat/AiWorkspace<br/>4 模型可切换"]
+  subgraph 接入层
+    AC["AiController<br/>chat/summarize/moderate/tags/rag-chat"]
+    RL["AiRateLimitInterceptor<br/>+ AiRequestBodyCacheFilter"]
+  end
+  subgraph 抽象层
+    IF[AiService 接口]
+  end
+  subgraph 实现层
+    TA["TenantAwareAiService<br/>Primary 委托者"]
+    OA["OpenAiCompatService<br/>真实上游客户端"]
+    MK["MockAiService<br/>本地假回复兜底"]
+  end
+  subgraph 治理层
+    TS["TenantService<br/>AES-GCM 配置加密"]
+    PN["PrivateNetworkValidator<br/>SSRF 防御"]
+    SM["SecurityMetrics<br/>ssrf_blocked_total<br/>crypto_decrypt_failed_total"]
+    AL[AuditLogService]
+    RG["Redis 计数<br/>ai_rate:user<br/>ai_rate:tenant"]
+  end
+  subgraph 上游
+    P1["DeepSeek V4 Flash/Pro"]
+    P2["MiMo 2.5 / 2.5 Pro"]
+    P3["本地 Ollama / 商用 API"]
+  end
+  UI --> AC --> RL --> IF
+  IF -.实现.-> TA
+  IF -.实现.-> OA
+  IF -.实现.-> MK
+  TA -->|按租户委托| OA
+  TA -->|降级| MK
+  TA --> TS
+  TA --> PN
+  TA --> SM
+  TA --> AL
+  RL --> RG
+  OA --> P1
+  OA --> P2
+  OA --> P3

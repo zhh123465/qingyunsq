@@ -7,6 +7,8 @@ import com.campusforum.infra.security.TrustedProxyResolver;
 import com.campusforum.notify.service.NotifyService;
 import com.campusforum.post.domain.Post;
 import com.campusforum.post.dto.CreatePostRequest;
+import com.campusforum.ai.mapper.PostAiCardMapper;
+import com.campusforum.post.mapper.CommentMapper;
 import com.campusforum.post.mapper.PostMapper;
 import com.campusforum.post.mapper.ReactionMapper;
 import com.campusforum.post.service.PostService;
@@ -70,6 +72,12 @@ class PostServiceXssAndQuoteEscapeTest {
     private QaQuestionMapper qaQuestionMapper;
 
     @Mock
+    private CommentMapper commentMapper;
+
+    @Mock
+    private PostAiCardMapper postAiCardMapper;
+
+    @Mock
     private NotifyService notifyService;
 
     @Mock
@@ -108,13 +116,14 @@ class PostServiceXssAndQuoteEscapeTest {
     @BeforeEach
     void setUp() {
         // Lombok @RequiredArgsConstructor 生成构造器，参数顺序与字段声明顺序严格一致：
-        // postMapper / reactionMapper / userMapper / qaQuestionMapper / notifyService /
-        // achievementService / meiliSearchClient / sensitiveWordService /
-        // followService / userService / spaceMemberMapper / postViewDeduper /
-        // trustedProxyResolver / httpRequest / htmlSanitizerService
+        // postMapper / reactionMapper / userMapper / qaQuestionMapper / commentMapper /
+        // postAiCardMapper / notifyService / achievementService / meiliSearchClient /
+        // sensitiveWordService / followService / userService / spaceMemberMapper /
+        // postViewDeduper / trustedProxyResolver / httpRequest / htmlSanitizerService
         postService = new PostService(
-                postMapper, reactionMapper, userMapper, qaQuestionMapper, notifyService,
-                achievementService, meiliSearchClient, sensitiveWordService,
+                postMapper, reactionMapper, userMapper, qaQuestionMapper,
+                commentMapper, postAiCardMapper,
+                notifyService, achievementService, meiliSearchClient, sensitiveWordService,
                 followService, userService, spaceMemberMapper, postViewDeduper,
                 trustedProxyResolver, httpRequest, htmlSanitizerService);
 

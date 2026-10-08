@@ -1,6 +1,9 @@
 # 数据库迁移目录
 
-本目录存放 CampusForum 的增量数据库迁移脚本。命名采用 `V{版本号}__{说明}.sql` 风格，与 Flyway 命名约定兼容（即使本项目目前未集成 Flyway，便于后续平滑接入）。
+> ⚠️ **2026-06-24 更新**：项目已集成 **Flyway**（`flyway-mysql`），迁移文件放入 `backend/src/main/resources/db/migration/` 后，应用启动时自动执行。
+> 本目录（`db/migrations/`）保留作历史参考和手工兜底。**新增迁移时，请同时放入两处**（classpath 目录 和 本目录）。
+
+本目录存放 CampusForum 的增量数据库迁移脚本。命名采用 `V{版本号}__{说明}.sql` 风格，与 Flyway 兼容。
 
 ## 目录结构
 
@@ -65,6 +68,30 @@ mysql -u $MYSQL_USER -p $MYSQL_PASSWORD campus_forum < db/migrations/V20260522_0
 ```bash
 mysql -u $MYSQL_USER -p $MYSQL_PASSWORD campus_forum < db/migrations/V20260522_02__resource_sha256.sql
 ```
+
+## 字符集修复迁移（V20260624_01）
+
+### V20260624_01__fix_tenant_charset.sql
+
+**目的**：修复存量库中 `tenants` 表中文名称双重编码乱码。已在生产环境验证通过。
+
+**根因**：Docker MySQL init 阶段，mysql 客户端以 latin1（即 cp1252）连接执行 V1 bootstrap 脚本，UTF-8 字节被按 cp1252 单字节重新编码存入 utf8mb4 列。Java 应用通过 `characterEncoding=UTF-8` 写入的数据不受影响，因此仅 tenants 种子数据受影响。
+
+**手法**：`CONVERT(CAST(CONVERT(name USING latin1) AS BINARY) USING utf8mb4)` — 反转 cp1252 双重编码。对本就正确的数据幂等无害。
+
+**执行**：
+```bash
+mysql --default-character-set=utf8mb4 -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" campus_forum \
+  < db/migrations/V20260624_01__fix_tenant_charset.sql
+```
+
+### V20260624_02__ai_workspace_tables.sql
+
+**目的**：AI 工作台持久化——新建 10 张表替代 `backend/data/ai-workspace.json` 内存存储，纳入 MyBatis-Plus 租户隔离与 Flyway 自动迁移。
+
+**变更**：新建 `ai_agents/plugins/knowledge_bases/documents/qa_pairs/ingest_tasks/conversations/messages/favorites/installed_plugins`。
+
+**业务影响**：前端零改动（Controller 接口不变）。存量 AI 工作台数据（JSON 文件中的演示数据）丢失——新部署通过种子数据初始化预设智能体/插件/知识库；若生产有重要 AI 工作台用户数据，需写一次性 JSON→DB 导入脚本。
 
 ## 应用进度跟踪（可选）
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   NAlert,
   NButton,
@@ -8,7 +8,6 @@ import {
   NModal,
   NSelect,
   NSpin,
-  NSlider,
   NTag,
   NUpload,
   useMessage,
@@ -37,6 +36,8 @@ import {
 import {
   deleteResource,
   getDownloadUrl,
+  getMyResources,
+  getOfficePreviewUrl,
   getPreviewUrl,
   getResourceById,
   getResourcePreviewText,
@@ -47,7 +48,8 @@ import {
 import { useAuthStore } from '@/stores/auth';
 import { useTheme } from '@/composables/useTheme';
 import type { ResourcePreviewVO, ResourceVO } from '@/types/resource';
-import { ALL_RESOURCE_TOPIC, getResourceTopics } from '@/utils/resource-topic';
+import { ALL_RESOURCE_TOPIC, buildResourceTopicOptions, getResourceTopics } from '@/utils/resource-topic';
+import { getResourcePreviewKind, normalizeResourceType } from '@/utils/resource-preview';
 
 type ResourceFilter = 'all' | 'doc' | 'video' | 'audio' | 'image' | 'archive' | 'other';
 type SortMode = 'mixed' | 'time' | 'type' | 'size' | 'download';
@@ -80,15 +82,10 @@ const uploadTags = ref<string[]>([]);
 const uploadLoading = ref(false);
 
 const activePersonalView = ref<'all' | 'upload' | 'collect' | 'recent' | 'download'>('all');
+/** 我的上传视图数据（含待审核/已驳回，与公开列表分开存放）。 */
+const mineResources = ref<ResourceVO[]>([]);
+const mineLoading = ref(false);
 
-const storageUpgradeVisible = ref(false);
-const upgradeSize = ref(20);
-const upgradeReason = ref('');
-const upgradeLoading = ref(false);
-
-const downloadModalVisible = ref(false);
-const downloadProgress = ref(0);
-const downloadingFileName = ref('');
 
 const filters: Array<{ key: ResourceFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -100,21 +97,46 @@ const filters: Array<{ key: ResourceFilter; label: string }> = [
   { key: 'other', label: '其他' },
 ];
 
-const categoryRows = [
-  ['课程资料', '1.2k', BookOutline],
-  ['考研考证', '856', BookmarkOutline],
-  ['编程技术', '2.4k', CodeSlashOutline],
-  ['设计创意', '632', ImageOutline],
-  ['语言学习', '745', MusicalNotesOutline],
-  ['职业技能', '512', StarOutline],
-  ['考试题库', '1.1k', DocumentTextOutline],
-  ['电子书籍', '934', BookOutline],
-  ['学习笔记', '1.6k', DocumentTextOutline],
-  ['实用工具', '423', ArchiveOutline],
-  ['其他资源', '321', FolderOutline],
-] as const;
+const TOPIC_ICON_MAP: Record<string, any> = {
+  课程资料: BookOutline,
+  考研考证: BookmarkOutline,
+  编程技术: CodeSlashOutline,
+  设计创意: ImageOutline,
+  语言学习: MusicalNotesOutline,
+  职业技能: StarOutline,
+  考试题库: DocumentTextOutline,
+  电子书籍: BookOutline,
+  学习笔记: DocumentTextOutline,
+  实用工具: ArchiveOutline,
+  其他资源: FolderOutline,
+  未分类: FolderOutline,
+};
 
-const hotTags = ['Java', 'Python', '考研', 'React', '数据结构', '英语', '设计', '前端', '算法', 'PPT模板', '摄影', '更多'];
+const topicOptions = computed(() => {
+  const rawItems = resources.value.length
+    ? buildResourceTopicOptions(resources.value)
+    : [];
+  return rawItems.map((item) => ({
+    label: item.label,
+    count: compactCount(item.count),
+    icon: TOPIC_ICON_MAP[item.label] || FolderOutline,
+  }));
+});
+
+const hotTags = computed(() => {
+  if (!resources.value.length) return [] as string[];
+  const tagCounts = new Map<string, number>();
+  for (const r of resources.value) {
+    for (const tag of r.tags || []) {
+      const t = tag.trim();
+      if (t) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+    }
+  }
+  return [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tag]) => tag);
+});
 
 const visibilityOptions = [
   { label: '公开（所有人可见）', value: 'PUBLIC' },
@@ -122,44 +144,11 @@ const visibilityOptions = [
   { label: '仅自己可见', value: 'PRIVATE' },
 ];
 
-const fallbackResources: ResourceVO[] = [
-  makeFallback(1, '计算机网络课程资料全集', 'folder', '课程资料', '程序员小明', 2_400, 892, '2026-05-28'),
-  makeFallback(2, 'React18 从入门到实战', 'mp4', '编程技术', '代码诗人', 3_600, 1200, '2026-05-27'),
-  makeFallback(3, '考研英语真题（2010-2023）', 'pdf', '考研考证', '学霸学长', 5_700, 2100, '2026-05-27'),
-  makeFallback(4, '四六级高频词汇表.xlsx', 'xlsx', '语言学习', '英语达人', 1_800, 673, '2026-05-26'),
-  makeFallback(5, '产品设计思维导图模板', 'pptx', '设计创意', '设计师奶茶', 1_200, 432, '2026-05-26'),
-  makeFallback(6, 'Python 爬虫实战项目源码', 'zip', '编程技术', '算力小能手', 2_700, 921, '2026-05-25'),
-  makeFallback(7, '深入浅出计算机系统（原书）', 'docx', '电子书籍', '读书破万卷', 1_500, 512, '2026-05-25'),
-  makeFallback(8, '英语听力真题精听 100 篇', 'mp3', '语言学习', '听力小达人', 986, 321, '2026-05-24'),
-  makeFallback(9, '软件工程期末复习重点.docx', 'docx', '课程资料', '学习委员', 1_900, 718, '2026-05-24'),
-  makeFallback(10, '极简风景壁纸合集', 'jpg', '图片素材', '摄影爱好者', 1_100, 286, '2026-05-23'),
-  makeFallback(11, 'LeetCode 刷题题解合集', 'md', '编程技术', '算法小能手', 3_300, 1180, '2026-05-23'),
-  makeFallback(12, '数据结构与算法基础', 'mp4', '课程资料', '数据结构与算法', 2_200, 804, '2026-05-22'),
-];
 
 const visibleResources = computed(() => {
-  let base = resources.value.length ? resources.value : fallbackResources;
-
-  if (activePersonalView.value !== 'all') {
-    base = base.filter((item) => {
-      const absId = Math.abs(item.id);
-      if (activePersonalView.value === 'upload') {
-        return absId % 3 === 0;
-      }
-      if (activePersonalView.value === 'collect') {
-        return absId % 2 === 0;
-      }
-      if (activePersonalView.value === 'recent') {
-        return absId % 4 === 1;
-      }
-      if (activePersonalView.value === 'download') {
-        return absId % 5 === 2;
-      }
-      return true;
-    });
-  }
-
-  const filtered = base.filter((item) => {
+  // 我的上传视图走 /resources/mine（含待审核/已驳回），其余视图走公开列表
+  const source = activePersonalView.value === 'upload' ? mineResources.value : resources.value;
+  const filtered = source.filter((item) => {
     const typeMatch = activeFilter.value === 'all' || filterForType(item.fileType) === activeFilter.value;
     const topics = getResourceTopics(item);
     const topicMatch = activeTopic.value === ALL_RESOURCE_TOPIC || topics.includes(activeTopic.value);
@@ -168,31 +157,21 @@ const visibleResources = computed(() => {
   return sortResources(filtered);
 });
 
+const resourceStatusBadge: Record<number, { label: string; kind: 'warning' | 'error' }> = {
+  2: { label: '审核中', kind: 'warning' },
+  3: { label: '已驳回', kind: 'error' },
+  0: { label: '已隐藏', kind: 'error' },
+};
+
 const rankingResources = computed(() =>
-  [...(resources.value.length ? resources.value : fallbackResources)]
+  [...resources.value]
     .sort((a, b) => b.downloadCount - a.downloadCount)
     .slice(0, 5),
 );
 
-const recentResources = computed(() => [...(resources.value.length ? resources.value : fallbackResources)].slice(0, 4));
+const recentResources = computed(() => [...resources.value].slice(0, 4));
 const currentUserId = computed(() => authStore.user?.id);
 const isUploader = computed(() => selectedResource.value?.uploaderId === currentUserId.value);
-
-watch(
-  () => selectedResource.value?.id,
-  async (id) => {
-    if (!id || id < 0) {
-      previewUrl.value = '';
-      return;
-    }
-    try {
-      previewUrl.value = await getPreviewUrl(id);
-    } catch {
-      previewUrl.value = '';
-    }
-  },
-  { immediate: true },
-);
 
 const markdownSrcdoc = computed(() => {
   if (!previewText.value) return '';
@@ -208,37 +187,6 @@ blockquote{margin:0 0 12px;padding-left:12px;color:${blockquoteColor};border-lef
 </style></head><body>${renderMarkdown(previewText.value.content)}</body></html>`;
 });
 
-function makeFallback(
-  id: number,
-  fileName: string,
-  fileType: string,
-  tag: string,
-  author: string,
-  views: number,
-  downloads: number,
-  createdAt: string,
-): ResourceVO {
-  return {
-    id: -id,
-    uploaderId: 0,
-    uploader: { id: 0, nickname: author, avatarUrl: '' },
-    spaceId: null,
-    fileName,
-    fileSize: 8 * 1024 * 1024 + id * 1024 * 200,
-    fileType,
-    visibility: 'PUBLIC',
-    college: null,
-    major: null,
-    course: null,
-    semester: null,
-    tags: [tag],
-    downloadCount: downloads,
-    collectCount: views,
-    version: null,
-    description: '精选学习资源，适合课程复习、项目实战或资料归档。',
-    createdAt,
-  };
-}
 
 async function load() {
   loading.value = true;
@@ -254,14 +202,11 @@ async function load() {
 async function openDetail(resource: ResourceVO) {
   selectedResource.value = resource;
   detailVisible.value = true;
-  detailLoading.value = resource.id > 0;
+  detailLoading.value = true;
   previewText.value = null;
   previewError.value = '';
-
-  if (resource.id < 0) {
-    detailLoading.value = false;
-    return;
-  }
+  previewUrl.value = '';
+  previewLoading.value = false;
 
   try {
     selectedResource.value = await getResourceById(resource.id);
@@ -274,9 +219,10 @@ async function openDetail(resource: ResourceVO) {
 }
 
 async function loadPreview() {
-  if (!selectedResource.value || selectedResource.value.id < 0) return;
+  if (!selectedResource.value) return;
   previewText.value = null;
   previewError.value = '';
+  previewUrl.value = '';
 
   const kind = getPreviewKind(selectedResource.value);
   if (kind === 'text') {
@@ -288,7 +234,16 @@ async function loadPreview() {
     } finally {
       previewLoading.value = false;
     }
-  } else if (kind === 'pdf' || kind === 'image') {
+  } else if (kind === 'office') {
+    previewLoading.value = true;
+    try {
+      previewUrl.value = await getOfficePreviewUrl(selectedResource.value.id);
+    } catch {
+      previewError.value = 'Office 预览服务链接加载失败，可先下载查看';
+    } finally {
+      previewLoading.value = false;
+    }
+  } else if (['pdf', 'image', 'video', 'audio'].includes(kind)) {
     previewLoading.value = true;
     try {
       previewUrl.value = await getPreviewUrl(selectedResource.value.id);
@@ -331,8 +286,24 @@ function applyPersonalView(view: 'upload' | 'collect' | 'recent' | 'download') {
   activeTopic.value = ALL_RESOURCE_TOPIC;
   activeFilter.value = 'all';
   sortMode.value = modeMap[view];
+  if (view === 'upload') void loadMine();
   scrollResourcesTop();
   message.info(`已切换至【${view === 'upload' ? '我的上传' : view === 'collect' ? '我的收藏' : view === 'recent' ? '最近查看' : '下载记录'}】视图`);
+}
+
+async function loadMine() {
+  if (!authStore.user) {
+    message.warning('登录后可查看我的上传');
+    return;
+  }
+  mineLoading.value = true;
+  try {
+    mineResources.value = await getMyResources({ limit: 50 });
+  } catch {
+    mineResources.value = [];
+  } finally {
+    mineLoading.value = false;
+  }
 }
 
 function applySort(mode: SortMode) {
@@ -354,24 +325,6 @@ function showRecentAll() {
   sortMode.value = 'time';
   scrollResourcesTop();
   message.info('已按最近更新展示资源');
-}
-
-function openStorageUpgrade() {
-  storageUpgradeVisible.value = true;
-  upgradeReason.value = '';
-  upgradeSize.value = 20;
-}
-
-async function submitStorageUpgrade() {
-  if (!upgradeReason.value.trim()) {
-    message.warning('请填写申请理由');
-    return;
-  }
-  upgradeLoading.value = true;
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  upgradeLoading.value = false;
-  storageUpgradeVisible.value = false;
-  message.success(`已提交扩容申请至 ${upgradeSize.value}GB，审批结果将以系统通知形式发送给您`);
 }
 
 function sortResources(list: ResourceVO[]) {
@@ -414,9 +367,15 @@ async function submitUpload() {
       tags,
       description: uploadDescription.value.trim() || undefined,
     });
-    resources.value = [resource, ...resources.value.filter((item) => item.id !== resource.id)];
+    if (resource.status === 2) {
+      // 待审核资源不混入公开列表（刷新即消失造成困惑），归入"我的上传"视图
+      mineResources.value = [resource, ...mineResources.value.filter((item) => item.id !== resource.id)];
+      message.success('上传成功，已提交审核，可在【我的上传】中查看进度');
+    } else {
+      resources.value = [resource, ...resources.value.filter((item) => item.id !== resource.id)];
+      message.success('上传成功');
+    }
     uploadVisible.value = false;
-    message.success('上传成功');
     await openDetail(resource);
   } catch {
     message.error('上传失败');
@@ -435,51 +394,6 @@ function handleUploadTagsUpdate(value: string[]) {
 
 async function handleDownload(resource = selectedResource.value) {
   if (!resource) return;
-  if (resource.id < 0) {
-    downloadingFileName.value = resource.fileName;
-    downloadProgress.value = 0;
-    downloadModalVisible.value = true;
-
-    const steps = [
-      { progress: 15, delay: 300 },
-      { progress: 35, delay: 400 },
-      { progress: 70, delay: 500 },
-      { progress: 100, delay: 400 }
-    ];
-
-    for (const step of steps) {
-      await new Promise(resolve => setTimeout(resolve, step.delay));
-      downloadProgress.value = step.progress;
-    }
-
-    const content = `# ${resource.fileName}
-本文件是由 青云阁 模拟生成的下载包。
-资源名称: ${resource.fileName}
-资源类型: ${resource.fileType}
-分享作者: ${resource.uploader?.nickname || '未知'}
-下载日期: ${new Date().toLocaleDateString('zh-CN')}
-存储路径: cf-archive/resources/${Math.abs(resource.id)}/payload.${resource.fileType}
-
---------------------------------------------------
-[模拟内容] 感谢您下载 青云阁 校园学术共享平台的资源。本资源包已通过云端安全检测，可放心查看。
-`;
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', resource.fileName.includes('.') ? resource.fileName : `${resource.fileName}.txt`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    resource.downloadCount++;
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-    downloadModalVisible.value = false;
-    message.success('资源下载成功！');
-    return;
-  }
   try {
     const url = await getDownloadUrl(resource.id);
     window.open(url, '_blank');
@@ -493,6 +407,7 @@ async function refreshResource(id: number) {
   try {
     const latest = await getResourceById(id);
     resources.value = resources.value.map((item) => (item.id === id ? latest : item));
+    mineResources.value = mineResources.value.map((item) => (item.id === id ? latest : item));
     if (selectedResource.value?.id === id) selectedResource.value = latest;
   } catch {
     // Download count refresh is non-critical.
@@ -504,6 +419,7 @@ async function handleDelete() {
   try {
     await deleteResource(selectedResource.value.id);
     resources.value = resources.value.filter((item) => item.id !== selectedResource.value?.id);
+    mineResources.value = mineResources.value.filter((item) => item.id !== selectedResource.value?.id);
     detailVisible.value = false;
     message.success('资源已删除');
   } catch {
@@ -513,24 +429,20 @@ async function handleDelete() {
 
 function filterForType(fileType: string | null | undefined): ResourceFilter {
   const type = normalizeType(fileType);
-  if (['pdf', 'doc', 'docx', 'md', 'markdown', 'ppt', 'pptx', 'xls', 'xlsx', 'folder'].includes(type)) return 'doc';
-  if (['mp4', 'mov', 'avi'].includes(type)) return 'video';
-  if (['mp3', 'wav', 'm4a'].includes(type)) return 'audio';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type)) return 'image';
+  if (['pdf', 'doc', 'docx', 'md', 'markdown', 'ppt', 'pptx', 'xls', 'xlsx', 'txt', 'log', 'csv', 'json', 'xml', 'yml', 'yaml', 'sql', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'css', 'scss', 'html', 'htm', 'folder'].includes(type)) return 'doc';
+  if (['mp4', 'webm', 'mov', 'avi'].includes(type)) return 'video';
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(type)) return 'audio';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(type)) return 'image';
   if (['zip', 'rar', '7z'].includes(type)) return 'archive';
   return 'other';
 }
 
-function getPreviewKind(resource: ResourceVO): 'pdf' | 'image' | 'text' | 'unsupported' {
-  const fileType = normalizeType(resource.fileType);
-  if (fileType === 'pdf') return 'pdf';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileType)) return 'image';
-  if (['md', 'markdown', 'docx'].includes(fileType)) return 'text';
-  return 'unsupported';
+function getPreviewKind(resource: ResourceVO) {
+  return getResourcePreviewKind(resource);
 }
 
 function normalizeType(fileType: string | null | undefined) {
-  return (fileType || '').toLowerCase();
+  return normalizeResourceType(fileType);
 }
 
 function formatSize(bytes: number) {
@@ -554,25 +466,25 @@ function formatDate(value: string) {
 function iconFor(resource: ResourceVO) {
   const type = normalizeType(resource.fileType);
   if (type === 'folder') return FolderOutline;
-  if (['mp4', 'mov', 'avi'].includes(type)) return PlayCircleOutline;
-  if (['mp3', 'wav', 'm4a'].includes(type)) return MusicalNotesOutline;
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type)) return ImageOutline;
+  if (['mp4', 'webm', 'mov', 'avi'].includes(type)) return PlayCircleOutline;
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(type)) return MusicalNotesOutline;
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(type)) return ImageOutline;
   if (['zip', 'rar', '7z'].includes(type)) return ArchiveOutline;
-  if (['md', 'markdown'].includes(type)) return CodeSlashOutline;
+  if (['md', 'markdown', 'txt', 'log', 'csv', 'json', 'xml', 'yml', 'yaml', 'sql', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'css', 'scss', 'html', 'htm'].includes(type)) return CodeSlashOutline;
   return DocumentTextOutline;
 }
 
 function tileClass(resource: ResourceVO) {
   const type = normalizeType(resource.fileType);
   if (type === 'folder') return 'folder';
-  if (['mp4', 'mov', 'avi'].includes(type)) return 'video';
-  if (['mp3', 'wav', 'm4a'].includes(type)) return 'audio';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type)) return 'image';
+  if (['mp4', 'webm', 'mov', 'avi'].includes(type)) return 'video';
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(type)) return 'audio';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(type)) return 'image';
   if (['zip', 'rar', '7z'].includes(type)) return 'archive';
   if (['xls', 'xlsx'].includes(type)) return 'excel';
   if (['ppt', 'pptx'].includes(type)) return 'ppt';
   if (['pdf'].includes(type)) return 'pdf';
-  if (['md', 'markdown'].includes(type)) return 'code';
+  if (['md', 'markdown', 'txt', 'log', 'csv', 'json', 'xml', 'yml', 'yaml', 'sql', 'java', 'py', 'js', 'jsx', 'ts', 'tsx', 'vue', 'css', 'scss', 'html', 'htm'].includes(type)) return 'code';
   return 'doc';
 }
 
@@ -594,17 +506,17 @@ onMounted(load);
   <div class="resources-page">
     <aside class="resources-left">
       <section class="apple-card nav-card">
-        <h2>资源库</h2>
+        <h2>资源</h2>
         <button class="nav-primary" :class="{ active: activeTopic === ALL_RESOURCE_TOPIC && activePersonalView === 'all' }" @click="applyTopic(ALL_RESOURCE_TOPIC)">
           <n-icon size="18"><FolderOutline /></n-icon>
           全部资源
         </button>
         <div class="nav-divider" />
         <p>资源分类</p>
-        <button v-for="[label, count, icon] in categoryRows" :key="label" class="category-row" :class="{ active: activeTopic === label && activePersonalView === 'all' }" @click="applyTopic(label)">
-          <n-icon size="17"><component :is="icon" /></n-icon>
-          <span>{{ label }}</span>
-          <strong>{{ count }}</strong>
+        <button v-for="item in topicOptions" :key="item.label" class="category-row" :class="{ active: activeTopic === item.label && activePersonalView === 'all' }" @click="applyTopic(item.label)">
+          <n-icon size="17"><component :is="item.icon" /></n-icon>
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
         </button>
         <div class="nav-divider" />
         <p>我的资源</p>
@@ -614,12 +526,6 @@ onMounted(load);
         <button class="category-row" :class="{ active: activePersonalView === 'download' }" @click="applyPersonalView('download')"><n-icon size="17"><DownloadOutline /></n-icon><span>下载记录</span></button>
       </section>
 
-      <section class="storage-card apple-card">
-        <h3>存储空间</h3>
-        <div class="storage-text"><span /> <strong>2.45GB / 10GB</strong></div>
-        <div class="storage-bar"><i /></div>
-        <button @click="openStorageUpgrade">扩容空间</button>
-      </section>
     </aside>
 
     <main class="resources-main">
@@ -648,7 +554,7 @@ onMounted(load);
         </div>
       </div>
 
-      <div v-if="loading" class="loading-state"><n-spin size="large" /></div>
+      <div v-if="loading || (activePersonalView === 'upload' && mineLoading)" class="loading-state"><n-spin size="large" /></div>
 
       <section v-else class="resource-grid" :class="{ list: gridMode === 'list' }">
         <article v-for="resource in visibleResources" :key="resource.id" class="resource-card" @click="openDetail(resource)">
@@ -656,6 +562,11 @@ onMounted(load);
             <n-icon size="62"><component :is="iconFor(resource)" /></n-icon>
             <small v-if="filterForType(resource.fileType) === 'video'">12:45</small>
             <small v-if="filterForType(resource.fileType) === 'audio'">03:45</small>
+            <span
+              v-if="resource.status != null && resource.status !== 1 && resourceStatusBadge[resource.status]"
+              class="status-badge"
+              :class="resourceStatusBadge[resource.status].kind"
+            >{{ resourceStatusBadge[resource.status].label }}</span>
           </div>
           <h2>{{ resource.fileName }}</h2>
           <p class="resource-topic">
@@ -704,7 +615,7 @@ onMounted(load);
         <a v-for="item in recentResources" :key="item.id" @click="openDetail(item)">
           <n-icon size="14"><DocumentTextOutline /></n-icon>
           <span>{{ item.fileName }}</span>
-          <time>{{ item.id < 0 ? '刚刚' : formatDate(item.createdAt) }}</time>
+          <time>{{ formatDate(item.createdAt) }}</time>
         </a>
       </section>
     </aside>
@@ -712,9 +623,21 @@ onMounted(load);
     <NModal v-model:show="detailVisible" preset="card" class="resource-modal" :title="selectedResource?.fileName || '资源详情'" :bordered="false">
       <div v-if="detailLoading" class="modal-loading"><n-spin /></div>
       <template v-else-if="selectedResource">
+        <NAlert
+          v-if="selectedResource.status === 2"
+          type="warning"
+          :show-icon="true"
+          style="margin-bottom: 12px;"
+        >正在等待管理员审核，通过后对其他用户可见。</NAlert>
+        <NAlert
+          v-else-if="selectedResource.status === 3"
+          type="error"
+          :show-icon="true"
+          style="margin-bottom: 12px;"
+        >未通过审核{{ selectedResource.reviewReason ? `：${selectedResource.reviewReason}` : '' }}。可删除后修改重新上传。</NAlert>
         <div class="detail-meta">
           <div class="detail-tags">
-            <NTag size="small">{{ selectedResource.fileType.toUpperCase() }}</NTag>
+            <NTag size="small">{{ selectedResource.fileType ? selectedResource.fileType.toUpperCase() : '未知' }}</NTag>
             <NTag type="success" size="small">{{ selectedResource.visibility === 'PUBLIC' ? '公开' : selectedResource.visibility }}</NTag>
           </div>
           <div class="modal-actions">
@@ -739,6 +662,12 @@ onMounted(load);
           <iframe v-else-if="getPreviewKind(selectedResource) === 'pdf'" class="preview-frame" :src="previewUrl" title="PDF 预览" />
           <img v-else-if="getPreviewKind(selectedResource) === 'image'" class="preview-image" :src="previewUrl" :alt="selectedResource.fileName" />
           <iframe v-else-if="getPreviewKind(selectedResource) === 'text' && previewText" class="markdown-frame" :srcdoc="markdownSrcdoc" title="文本预览" />
+          <div v-else-if="getPreviewKind(selectedResource) === 'office' && previewUrl" class="office-preview">
+            <iframe class="preview-frame" :src="previewUrl" title="Office 预览" />
+            <NAlert type="info" :show-icon="false">旧版 Office 文件依赖外部预览服务；若无法加载，可直接下载查看。</NAlert>
+          </div>
+          <video v-else-if="getPreviewKind(selectedResource) === 'video'" class="preview-media" :src="previewUrl" controls preload="metadata" />
+          <audio v-else-if="getPreviewKind(selectedResource) === 'audio'" class="preview-audio" :src="previewUrl" controls preload="metadata" />
           <NAlert v-else type="info" :show-icon="false">当前格式暂不支持在线预览，可直接下载查看。</NAlert>
         </section>
       </template>
@@ -746,8 +675,8 @@ onMounted(load);
 
     <NModal v-model:show="uploadVisible" preset="card" class="upload-modal" title="上传资源" :bordered="false">
       <div class="upload-form">
-        <label>选择文件（最大 50MB）</label>
-        <NUpload :max="1" :default-upload="false" :file-list="uploadFileList" :accept="resourceAccept" @update:file-list="handleFileChange">
+        <label>选择文件（最大 200MB，支持任意类型；上传后需管理员审核）</label>
+        <NUpload :max="1" :default-upload="false" :file-list="uploadFileList" :accept="resourceAccept || undefined" @update:file-list="handleFileChange">
           <NButton><template #icon><CloudUploadOutline /></template>选择文件</NButton>
         </NUpload>
         <div v-if="uploadFile" class="selected-file">已选：{{ uploadFile.name }}（{{ formatSize(uploadFile.size) }}）</div>
@@ -764,53 +693,11 @@ onMounted(load);
       </div>
     </NModal>
 
-    <!-- Storage Upgrade Modal -->
-    <NModal v-model:show="storageUpgradeVisible" preset="card" class="upload-modal" title="申请扩容存储空间" :bordered="false">
-      <div class="upload-form">
-        <div style="margin-bottom: 8px;">
-          <span style="color: var(--cf-text-secondary); font-weight: bold;">当前配额：</span>
-          <span style="font-weight: 800;">10 GB</span>
-        </div>
-        <div style="margin-bottom: 8px;">
-          <span style="color: var(--cf-text-secondary); font-weight: bold;">申请配额：</span>
-          <span style="color: var(--cf-primary); font-weight: 800; font-size: 16px;">{{ upgradeSize }} GB</span>
-        </div>
-        <div style="padding: 8px 0 16px;">
-          <n-slider v-model:value="upgradeSize" :min="15" :max="100" :step="5" />
-        </div>
-        <label>申请理由</label>
-        <NInput v-model:value="upgradeReason" type="textarea" placeholder="请填写申请理由（例如：需要存储大量专业课视频和代码仓库）..." maxlength="200" />
-        <div class="actions">
-          <NButton type="primary" :loading="upgradeLoading" @click="submitStorageUpgrade">提交申请</NButton>
-          <NButton @click="storageUpgradeVisible = false">取消</NButton>
-        </div>
-      </div>
-    </NModal>
-
-    <!-- Download Progress Modal -->
-    <NModal v-model:show="downloadModalVisible" :closable="false" preset="card" class="upload-modal" title="准备下载资源" :bordered="false" style="width: 400px;">
-      <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 10px 0;">
-        <n-icon size="48" color="var(--cf-primary)">
-          <DownloadOutline />
-        </n-icon>
-        <div style="text-align: center; width: 100%;">
-          <div style="font-weight: bold; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            {{ downloadingFileName }}
-          </div>
-          <div style="color: var(--cf-text-muted); font-size: 13px; margin-bottom: 12px;">
-            {{ downloadProgress < 100 ? '正在建立安全连接，打包资源...' : '打包完成，正在保存到本地...' }}
-          </div>
-        </div>
-        <div style="width: 100%; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.06); overflow: hidden;">
-          <div :style="{ width: downloadProgress + '%', height: '100%', background: 'var(--cf-primary)', transition: 'width 0.3s ease' }" />
-        </div>
-        <span style="font-size: 14px; font-weight: bold;">{{ downloadProgress }}%</span>
-      </div>
-    </NModal>
   </div>
 </template>
 
 <style scoped>
+/* ===== Layout ===== */
 .resources-page {
   min-height: calc(100vh - 112px);
   display: grid;
@@ -828,161 +715,165 @@ onMounted(load);
   align-self: start;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.apple-card,
-.resource-card {
-  background: var(--cf-card-bg);
-  border: 1px solid var(--cf-card-border);
-  border-radius: 18px;
-  box-shadow: var(--cf-card-shadow);
-  backdrop-filter: blur(24px) saturate(150%);
-}
-
-.nav-card,
-.storage-card,
-.side-card,
-.upload-card {
-  padding: 20px;
-}
-
-.nav-card h2 {
-  margin: 0 0 18px;
-  font-size: 20px;
-}
-
-.nav-primary,
-.category-row {
-  width: 100%;
-  min-height: 36px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--cf-text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 720;
-  cursor: pointer;
-}
-
-.nav-primary.active,
-.category-row.active {
-  padding: 0 12px;
-  color: var(--cf-primary);
-  background: rgba(0, 216, 191, 0.09);
-}
-
-.category-row strong {
-  margin-left: auto;
-  color: var(--cf-text-muted);
-  font-weight: 650;
-}
-
-.nav-divider {
-  height: 1px;
-  margin: 16px 0;
-  background: var(--cf-border);
-}
-
-.nav-card p {
-  margin: 0 0 8px;
-  color: var(--cf-text-secondary);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.storage-card h3 {
-  margin: 0 0 18px;
-}
-
-.storage-text {
-  display: flex;
-  justify-content: flex-end;
-  color: var(--cf-text-muted);
-  font-size: 12px;
-}
-
-.storage-bar {
-  height: 8px;
-  margin: 10px 0 16px;
-  border-radius: 999px;
-  background: var(--cf-border);
-}
-
-.storage-bar i {
-  display: block;
-  width: 28%;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--cf-primary);
-}
-
-.storage-card button,
-.upload-card button {
-  width: 100%;
-  height: 40px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--cf-primary);
-  color: white;
-  font-weight: 850;
-  cursor: pointer;
+  gap: 16px;
 }
 
 .resources-main {
   min-width: 0;
 }
 
+/* ===== Cards ===== */
+.apple-card,
+.resource-card {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s;
+}
+
+.nav-card,
+.side-card,
+.upload-card {
+  padding: 18px;
+}
+
+/* ===== Left nav ===== */
+.nav-card h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.nav-card p {
+  margin: 14px 0 8px;
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nav-primary,
+.category-row {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: all 0.15s;
+}
+
+.nav-primary:hover,
+.category-row:hover,
+.nav-primary.active,
+.category-row.active {
+  background: rgba(52, 208, 188, 0.06);
+  color: rgb(52, 208, 188);
+}
+
+.category-row strong {
+  margin-left: auto;
+  color: rgba(0, 0, 0, 0.3);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.category-row.active strong,
+.category-row:hover strong {
+  color: rgb(52, 208, 188);
+}
+
+.nav-divider {
+  height: 1px;
+  margin: 10px 0;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===== Main head ===== */
 .main-head {
-  margin: 18px 0 28px;
+  margin: 18px 0 22px;
 }
 
 .main-head h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 28px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
 }
 
 .main-head p {
   margin: 8px 0 0;
-  color: var(--cf-text-muted);
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.45);
 }
 
-.type-tabs,
-.filter-row {
+/* ===== Type tabs (main) ===== */
+.type-tabs {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 8px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
 
-.type-tabs {
-  margin-bottom: 22px;
-}
-
-.type-tabs button,
-.filter-row > button,
-.view-toggle button {
-  height: 40px;
-  min-width: 76px;
-  border: 1px solid var(--cf-border);
-  border-radius: 11px;
-  background: var(--cf-bg-glass);
-  color: var(--cf-text-secondary);
-  font-weight: 760;
+.type-tabs button {
+  padding: 9px 22px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-.type-tabs button.active,
-.view-toggle button.active {
-  color: var(--cf-primary);
-  background: rgba(0, 216, 191, 0.1);
-  border-color: rgba(0, 216, 191, 0.2);
+.type-tabs button:hover {
+  background: rgba(52, 208, 188, 0.06);
+  color: rgb(52, 208, 188);
 }
 
+.type-tabs button.active {
+  background: rgb(52, 208, 188);
+  color: #fff;
+}
+
+/* ===== Filter row (chips) ===== */
 .filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.filter-row > button {
+  padding: 6px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 20px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filter-row > button:hover,
+.filter-row > button.active {
+  background: rgba(52, 208, 188, 0.08);
+  color: rgb(52, 208, 188);
+  border-color: rgba(52, 208, 188, 0.3);
 }
 
 .view-toggle {
@@ -992,15 +883,31 @@ onMounted(load);
 }
 
 .view-toggle button {
-  min-width: 38px;
+  width: 34px;
+  height: 30px;
+  padding: 0;
   display: inline-grid;
   place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
+.view-toggle button:hover,
+.view-toggle button.active {
+  background: rgba(52, 208, 188, 0.08);
+  color: rgb(52, 208, 188);
+  border-color: rgba(52, 208, 188, 0.3);
+}
+
+/* ===== Resource grid ===== */
 .resource-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 22px;
+  gap: 16px;
 }
 
 .resource-grid.list {
@@ -1008,158 +915,230 @@ onMounted(load);
 }
 
 .resource-card {
-  padding: 18px;
+  padding: 16px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .resource-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.1);
+  transform: translateY(-2px);
+  border-color: rgba(52, 208, 188, 0.2);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
 }
 
 .file-art {
-  height: 96px;
-  margin-bottom: 14px;
+  height: 72px;
+  margin-bottom: 12px;
   border-radius: 12px;
   display: grid;
   place-items: center;
   position: relative;
-  color: white;
+  color: #fff;
 }
 
 .file-art small {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 6px;
+  bottom: 6px;
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgba(15, 23, 42, 0.72);
-  font-size: 11px;
+  background: rgba(15, 23, 42, 0.7);
+  font-size: 10px;
+  font-weight: 500;
 }
 
-.folder { color: #4d8ff7; background: linear-gradient(145deg, #eff7ff, #ffffff); }
-.video { background: linear-gradient(145deg, #c8b7ff, #6c5fd9); }
-.audio { color: #4c8fff; background: linear-gradient(145deg, #f1f7ff, #ffffff); }
-.image { background: linear-gradient(145deg, #86bfff, #f6a55f); }
-.archive { background: linear-gradient(145deg, #ffb33f, #f59e0b); }
-.excel { background: linear-gradient(145deg, #118447, #34c070); }
-.ppt { background: linear-gradient(145deg, #ff6b45, #ff9f70); }
-.pdf { background: linear-gradient(145deg, #ff514b, #ff7e6d); }
-.code { background: linear-gradient(145deg, #d9ddff, #eef0ff); color: #6d72d8; }
-.doc { background: linear-gradient(145deg, #2b75d6, #61a6ff); }
+.status-badge {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.status-badge.warning { background: rgba(245, 158, 11, 0.92); }
+.status-badge.error { background: rgba(239, 68, 68, 0.92); }
+
+/* Type color palette (desaturated) */
+.folder { color: #4d8ff7; background: linear-gradient(135deg, #eef5ff, #dbeaff); }
+.video { background: linear-gradient(135deg, #a599e6, #7f6ed4); }
+.audio { color: #4c8fff; background: linear-gradient(135deg, #e9f2ff, #d6e6ff); }
+.image { background: linear-gradient(135deg, #9dc9ff, #f6a55f); }
+.archive { background: linear-gradient(135deg, #ffcb6a, #f59e0b); }
+.excel { background: linear-gradient(135deg, #34c070, #16a34a); }
+.ppt { background: linear-gradient(135deg, #ff8b6b, #ff6b45); }
+.pdf { background: linear-gradient(135deg, #ff7060, #ff514b); }
+.code { color: #6d72d8; background: linear-gradient(135deg, #eaecff, #d9ddff); }
+.doc { background: linear-gradient(135deg, #61a6ff, #2b75d6); }
 
 .resource-card h2 {
-  margin: 0 0 10px;
-  font-size: 15px;
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.resource-topic,
-.author-row,
-.resource-card footer {
-  color: var(--cf-text-muted);
-  font-size: 13px;
-}
-
 .resource-topic {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 10px;
-  color: var(--cf-primary);
+  gap: 5px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: rgb(52, 208, 188);
 }
 
-.author-row,
-.resource-card footer {
+.author-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
 }
 
 .resource-card footer {
-  margin-top: 16px;
-}
-
-.resource-card footer span,
-.resource-card footer button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.resource-card footer button {
-  border: 0;
-  border-radius: 8px;
-  background: var(--cf-glass-btn-bg);
-  color: var(--cf-text-secondary);
-}
-
-.upload-card {
-  text-align: center;
-  padding: 34px 24px;
-}
-
-.upload-card :deep(.n-icon) {
-  color: var(--cf-primary);
-}
-
-.upload-card h3 {
-  margin: 12px 0 8px;
-  font-size: 20px;
-}
-
-.upload-card p {
-  margin: 0 0 20px;
-  color: var(--cf-text-muted);
-}
-
-.side-title {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
 }
 
-.side-title h3,
-.side-card h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.side-title button {
-  border: 0;
-  background: transparent;
-  color: var(--cf-text-muted);
+.resource-card footer span {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
+.resource-card footer button {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.resource-card footer button:hover {
+  background: rgba(52, 208, 188, 0.08);
+  color: rgb(52, 208, 188);
+}
+
+/* ===== Upload card (right sidebar) ===== */
+.upload-card {
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.upload-card :deep(.n-icon) {
+  color: rgb(52, 208, 188);
+}
+
+.upload-card h3 {
+  margin: 10px 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.upload-card p {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.upload-card button {
+  width: auto;
+  height: auto;
+  padding: 9px 24px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(52, 208, 188);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.upload-card button:hover {
+  background: rgb(38, 190, 170);
+}
+
+/* ===== Side cards ===== */
+.side-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.side-title h3,
+.side-card h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.side-title button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.side-title button:hover {
+  color: rgb(52, 208, 188);
+}
+
 .rank-row {
-  min-height: 58px;
+  min-height: 48px;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 72px;
+  grid-template-columns: 22px minmax(0, 1fr) 72px;
   gap: 10px;
   align-items: center;
+  padding: 6px 0;
 }
 
 .rank-row > span {
-  font-weight: 900;
-  color: var(--cf-text-secondary);
+  font-weight: 700;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.4);
+  text-align: center;
 }
 
 .rank-row > span.podium {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: white;
-  background: linear-gradient(145deg, #ffba24, #ff775c);
+  color: #fff;
+  font-size: 11px;
+  background: linear-gradient(145deg, rgb(52, 208, 188), rgb(38, 178, 155));
 }
 
 .rank-row strong,
@@ -1173,55 +1152,80 @@ onMounted(load);
 
 .rank-row strong {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
 }
 
 .rank-row p,
 .rank-row em {
-  margin: 4px 0 0;
-  color: var(--cf-text-muted);
-  font-size: 12px;
+  margin: 2px 0 0;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 11px;
   font-style: normal;
+}
+
+.rank-row em {
+  text-align: right;
 }
 
 .tag-cloud {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 6px;
+  margin-top: 12px;
 }
 
 .tag-cloud button {
-  border: 0;
+  padding: 5px 12px;
+  border: none;
   border-radius: 999px;
-  background: rgba(0, 216, 191, 0.1);
-  color: var(--cf-text-secondary);
-  padding: 7px 12px;
-  font-weight: 760;
+  background: rgba(52, 208, 188, 0.08);
+  color: rgb(52, 208, 188);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tag-cloud button:hover {
+  background: rgba(52, 208, 188, 0.15);
 }
 
 .side-card a {
   min-height: 32px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 54px;
+  grid-template-columns: 16px minmax(0, 1fr) 40px;
   align-items: center;
   gap: 8px;
-  color: var(--cf-text-secondary);
+  padding: 6px 0;
+  color: rgba(0, 0, 0, 0.6);
   font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s;
 }
 
 .side-card a time {
-  color: var(--cf-text-muted);
+  color: rgba(0, 0, 0, 0.3);
+  font-size: 11px;
   text-align: right;
 }
 
+.side-card a:hover {
+  color: rgb(52, 208, 188);
+}
+
+/* ===== States ===== */
 .loading-state,
 .modal-loading,
 .preview-state {
   padding: 40px;
   text-align: center;
+  color: rgba(0, 0, 0, 0.35);
 }
 
+/* ===== Modal (detail) ===== */
 .detail-meta {
   display: flex;
   justify-content: space-between;
@@ -1237,33 +1241,37 @@ onMounted(load);
 }
 
 .resource-desc {
-  color: var(--cf-text-secondary);
+  color: rgba(0, 0, 0, 0.6);
   line-height: 1.7;
+  font-size: 14px;
 }
 
 .info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   margin: 16px 0;
 }
 
 .info-grid div {
   padding: 12px;
-  border: 1px solid var(--cf-border);
-  border-radius: 10px;
-  background: var(--cf-bg-soft);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .info-grid span {
   display: block;
-  color: var(--cf-text-muted);
+  color: rgba(0, 0, 0, 0.4);
   font-size: 12px;
 }
 
 .info-grid strong {
   display: block;
   margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1272,25 +1280,47 @@ onMounted(load);
 .preview-title {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 10px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
 }
 
 .preview-frame,
 .markdown-frame {
   width: 100%;
   height: min(64vh, 720px);
-  border: 1px solid var(--cf-border);
-  border-radius: 10px;
-  background: var(--cf-bg-base);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  background: #fff;
 }
 
 .preview-image {
   max-width: 100%;
   max-height: 64vh;
   margin: 0 auto;
-  border-radius: 10px;
+  border-radius: 12px;
   object-fit: contain;
+}
+
+.preview-media {
+  width: 100%;
+  max-height: 64vh;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  background: #000;
+}
+
+.preview-audio {
+  width: 100%;
+  min-height: 48px;
+}
+
+.office-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .upload-form {
@@ -1300,12 +1330,13 @@ onMounted(load);
 }
 
 .upload-form label {
-  color: var(--cf-text-secondary);
-  font-weight: 800;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .selected-file {
-  color: var(--cf-primary);
+  color: rgb(52, 208, 188);
   font-size: 13px;
 }
 
@@ -1324,12 +1355,12 @@ onMounted(load);
   width: min(560px, calc(100vw - 32px));
 }
 
+/* ===== Responsive ===== */
 @media (max-width: 1320px) {
   .resources-page {
     grid-template-columns: 230px minmax(0, 1fr) 300px;
     gap: 20px;
   }
-
   .resource-grid {
     grid-template-columns: repeat(3, minmax(180px, 1fr));
   }
@@ -1339,7 +1370,6 @@ onMounted(load);
   .resources-page {
     grid-template-columns: 220px minmax(0, 1fr);
   }
-
   .resources-right {
     display: none;
   }
@@ -1350,27 +1380,101 @@ onMounted(load);
     display: flex;
     flex-direction: column;
   }
-
   .resources-left,
   .resources-right {
     position: static;
   }
-
-  .storage-card {
-    display: none;
-  }
-
   .resource-grid {
     grid-template-columns: 1fr;
   }
-
   .info-grid {
     grid-template-columns: 1fr;
   }
+  .type-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .type-tabs::-webkit-scrollbar { display: none; }
+  .type-tabs button { white-space: nowrap; }
 }
 
-html[data-theme='dark'] .folder { background: linear-gradient(145deg, rgba(77, 143, 247, 0.2), rgba(13, 22, 43, 0.5)); color: #4d8ff7; }
-html[data-theme='dark'] .audio { background: linear-gradient(145deg, rgba(76, 143, 255, 0.2), rgba(13, 22, 43, 0.5)); color: #4c8fff; }
-html[data-theme='dark'] .code { background: linear-gradient(145deg, rgba(109, 114, 216, 0.2), rgba(15, 17, 36, 0.5)); color: #a78bfa; }
-html[data-theme='dark'] .resource-card:hover { box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48); border-color: var(--cf-border-strong); }
+/* ===== Dark mode ===== */
+html[data-theme='dark'] .apple-card,
+html[data-theme='dark'] .resource-card {
+  background: var(--cf-bg-card, #0c0c0d);
+  border-color: var(--cf-card-border, rgba(255, 255, 255, 0.07));
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+html[data-theme='dark'] .resource-card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  border-color: rgba(52, 208, 188, 0.3);
+}
+html[data-theme='dark'] .nav-card h2,
+html[data-theme='dark'] .main-head h1,
+html[data-theme='dark'] .upload-card h3,
+html[data-theme='dark'] .rank-row strong,
+html[data-theme='dark'] .info-grid strong,
+html[data-theme='dark'] .resource-card h2 {
+  color: var(--cf-text-primary, #f8fafc);
+}
+html[data-theme='dark'] .nav-card p,
+html[data-theme='dark'] .main-head p,
+html[data-theme='dark'] .upload-card p,
+html[data-theme='dark'] .rank-row p,
+html[data-theme='dark'] .rank-row em,
+html[data-theme='dark'] .side-title h3,
+html[data-theme='dark'] .side-card h3,
+html[data-theme='dark'] .preview-title,
+html[data-theme='dark'] .upload-form label,
+html[data-theme='dark'] .resource-desc {
+  color: var(--cf-text-secondary, rgba(248, 250, 252, 0.76));
+}
+html[data-theme='dark'] .nav-primary,
+html[data-theme='dark'] .category-row {
+  color: var(--cf-text-secondary, rgba(248, 250, 252, 0.68));
+}
+html[data-theme='dark'] .type-tabs button {
+  color: rgba(248, 250, 252, 0.5);
+}
+html[data-theme='dark'] .filter-row > button,
+html[data-theme='dark'] .view-toggle button {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(248, 250, 252, 0.5);
+}
+html[data-theme='dark'] .rank-row > span {
+  color: rgba(248, 250, 252, 0.4);
+}
+html[data-theme='dark'] .side-card a {
+  color: rgba(248, 250, 252, 0.65);
+}
+html[data-theme='dark'] .side-card a time,
+html[data-theme='dark'] .author-row,
+html[data-theme='dark'] .resource-card footer,
+html[data-theme='dark'] .resource-topic {
+  color: rgba(248, 250, 252, 0.4);
+}
+html[data-theme='dark'] .info-grid div {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme='dark'] .info-grid span {
+  color: rgba(248, 250, 252, 0.4);
+}
+html[data-theme='dark'] .preview-frame,
+html[data-theme='dark'] .markdown-frame {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--cf-bg-card, #0c0c0d);
+}
+html[data-theme='dark'] .resource-card footer {
+  border-top-color: rgba(255, 255, 255, 0.05);
+}
+html[data-theme='dark'] .nav-divider {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Type color palette (dark) */
+html[data-theme='dark'] .folder { color: #4d8ff7; background: linear-gradient(135deg, rgba(77, 143, 247, 0.18), rgba(13, 22, 43, 0.5)); }
+html[data-theme='dark'] .audio { color: #4c8fff; background: linear-gradient(135deg, rgba(76, 143, 255, 0.18), rgba(13, 22, 43, 0.5)); }
+html[data-theme='dark'] .code { color: #a78bfa; background: linear-gradient(135deg, rgba(109, 114, 216, 0.22), rgba(15, 17, 36, 0.5)); }
 </style>

@@ -17,6 +17,7 @@ public enum ErrorCode {
     ALREADY_CHECKED_IN(10502, "今日已打卡"),
     RESOURCE_NOT_FOUND(10601, "资源不存在"),
     QUESTION_ALREADY_SOLVED(10701, "问题已有采纳答案"),
+    ANNOUNCEMENT_NOT_FOUND(10801, "公告不存在"),
 
     // 4xxxx 客户端错误
     BAD_REQUEST(40000, "请求参数错误"),

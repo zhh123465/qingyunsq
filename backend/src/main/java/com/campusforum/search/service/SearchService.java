@@ -219,6 +219,31 @@ public class SearchService {
             return List.of();
         }
 
+        // 优先走 MeiliSearch（索引文档不含 email/studentNo，天然满足漏洞 9 的 PII 约束）
+        try {
+            Long tid = com.campusforum.tenant.TenantContext.getTenantId();
+            List<Map<String, Object>> hits = meiliSearchClient.search(SearchIndexService.INDEX_USERS, keyword, limit, tid);
+            if (!hits.isEmpty()) {
+                return hits.stream().map(hit -> {
+                    String college = (String) hit.getOrDefault("college", null);
+                    String major = (String) hit.getOrDefault("major", null);
+                    return SearchResultVO.builder()
+                            .type("USER")
+                            .id(toLong(hit.get("id")))
+                            .title((String) hit.getOrDefault("nickname", ""))
+                            .description(college != null ? college + " " + (major != null ? major : "") : "")
+                            .author(PublicUserVO.builder()
+                                    .id(toLong(hit.get("id")))
+                                    .nickname((String) hit.getOrDefault("nickname", ""))
+                                    .avatarUrl((String) hit.getOrDefault("avatarUrl", null))
+                                    .build())
+                            .build();
+                }).toList();
+            }
+        } catch (Exception e) {
+            log.warn("MeiliSearch user search unavailable, falling back to MySQL LIKE: {}", e.getMessage());
+        }
+
         LambdaQueryWrapper<User> qw = new LambdaQueryWrapper<>();
         qw.eq(User::getStatus, 1);
         // 漏洞 9：仅保留 nickname LIKE，禁止按 email / studentNo 模糊匹配
@@ -239,6 +264,31 @@ public class SearchService {
     }
 
     private List<SearchResultVO> searchResources(String keyword, Long cursor, int limit) {
+        // 优先走 MeiliSearch，不可用或无命中时降级 MySQL LIKE
+        try {
+            Long tid = com.campusforum.tenant.TenantContext.getTenantId();
+            List<Map<String, Object>> hits = meiliSearchClient.search(SearchIndexService.INDEX_RESOURCES, keyword, limit, tid);
+            if (!hits.isEmpty()) {
+                return hits.stream().map(hit -> {
+                    Long uploaderId = toLong(hit.get("uploaderId"));
+                    User uploader = uploaderId != null ? userMapper.selectById(uploaderId) : null;
+                    return SearchResultVO.builder()
+                            .type("RESOURCE")
+                            .id(toLong(hit.get("id")))
+                            .title((String) hit.getOrDefault("fileName", ""))
+                            .description((String) hit.getOrDefault("description", null))
+                            .author(toUserVO(uploader))
+                            .createdAt(toLocalDateTime(hit.get("createdAt")))
+                            .downloadCount(toInt(hit.get("downloadCount")))
+                            .fileType((String) hit.getOrDefault("fileType", null))
+                            .fileSize(toLong(hit.get("fileSize")))
+                            .build();
+                }).toList();
+            }
+        } catch (Exception e) {
+            log.warn("MeiliSearch resource search unavailable, falling back to MySQL LIKE: {}", e.getMessage());
+        }
+
         LambdaQueryWrapper<Resource> qw = new LambdaQueryWrapper<>();
         qw.eq(Resource::getStatus, 1);
         qw.and(w -> w.like(Resource::getFileName, keyword)
@@ -271,6 +321,31 @@ public class SearchService {
     }
 
     private List<SearchResultVO> searchSpaces(String keyword, Long cursor, int limit) {
+        // 优先走 MeiliSearch，不可用或无命中时降级 MySQL LIKE
+        try {
+            Long tid = com.campusforum.tenant.TenantContext.getTenantId();
+            List<Map<String, Object>> hits = meiliSearchClient.search(SearchIndexService.INDEX_SPACES, keyword, limit, tid);
+            if (!hits.isEmpty()) {
+                return hits.stream().map(hit -> {
+                    Long ownerId = toLong(hit.get("ownerId"));
+                    User owner = ownerId != null ? userMapper.selectById(ownerId) : null;
+                    return SearchResultVO.builder()
+                            .type("SPACE")
+                            .id(toLong(hit.get("id")))
+                            .title((String) hit.getOrDefault("name", ""))
+                            .description((String) hit.getOrDefault("description", null))
+                            .author(toUserVO(owner))
+                            .createdAt(toLocalDateTime(hit.get("createdAt")))
+                            .category((String) hit.getOrDefault("category", null))
+                            .memberCount(toInt(hit.get("memberCount")))
+                            .postCount(toInt(hit.get("postCount")))
+                            .build();
+                }).toList();
+            }
+        } catch (Exception e) {
+            log.warn("MeiliSearch space search unavailable, falling back to MySQL LIKE: {}", e.getMessage());
+        }
+
         LambdaQueryWrapper<Space> qw = new LambdaQueryWrapper<>();
         qw.eq(Space::getStatus, 1);
         qw.and(w -> w.like(Space::getName, keyword)

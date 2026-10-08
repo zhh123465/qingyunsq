@@ -25,6 +25,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mindrot.jbcrypt.BCrypt;
 import org.mockito.MockedStatic;
+import com.campusforum.ai.workspace.mapper.AiKnowledgeBaseMapper;
+import com.campusforum.ai.workspace.mapper.AiKbQaPairMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -109,7 +111,9 @@ class UserServiceSensitiveChangeKickoutTest {
                 mock(SecurityProperties.class),
                 auditLogService,
                 securityMetrics,
-                mock(WechatMiniProgramClient.class));
+                mock(WechatMiniProgramClient.class),
+                mock(AiKnowledgeBaseMapper.class),
+                mock(AiKbQaPairMapper.class));
 
         // 静态 mock：StpUtil + BCrypt
         stpUtilMock = mockStatic(StpUtil.class);

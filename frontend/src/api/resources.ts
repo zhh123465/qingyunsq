@@ -1,8 +1,9 @@
 import { request } from './request';
 import type { ResourcePreviewVO, ResourceVO } from '@/types/resource';
 
-export const resourceAccept =
-  '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.rar,.7z,.jpg,.jpeg,.png,.gif,.webp,.md,.markdown';
+// 审核流（2026-07-13）：支持上传任意类型文件（含可执行程序），不再限制扩展名；
+// 上传后进入待审核队列，管理员审核通过才公开。
+export const resourceAccept = '';
 
 export async function uploadResource(
   file: File,
@@ -45,8 +46,21 @@ export async function getResourceById(id: number): Promise<ResourceVO> {
   return res.data;
 }
 
+/** 我的上传：本人全部状态（含待审核/已驳回）的资源，追踪审核进度用。 */
+export async function getMyResources(params?: { cursor?: number; limit?: number }): Promise<ResourceVO[]> {
+  const res = await request<ResourceVO[]>({ method: 'GET', url: '/resources/mine', params });
+  return res.data;
+}
+
 interface SignedUrlResponse {
   token: string;
+  expiresAt: number;
+}
+
+export interface OfficePreviewMeta {
+  kind: 'office';
+  previewServiceUrl: string;
+  downloadPath: string;
   expiresAt: number;
 }
 
@@ -79,6 +93,31 @@ export async function getPreviewUrl(id: number): Promise<string> {
   const sig = await fetchSignedToken(id, 'preview');
   const base = import.meta.env.VITE_API_BASE || '/api/v1';
   return `${base}/resources/${id}/preview?sig=${encodeURIComponent(sig)}`;
+}
+
+export async function getOfficePreviewMeta(id: number): Promise<OfficePreviewMeta> {
+  const sig = await fetchSignedToken(id, 'preview');
+  const res = await request<OfficePreviewMeta>({
+    method: 'GET',
+    url: `/resources/${id}/preview`,
+    params: { sig },
+  });
+  return res.data;
+}
+
+export function buildOfficePreviewUrl(meta: OfficePreviewMeta): string {
+  const absoluteDownloadUrl = new URL(meta.downloadPath, window.location.origin).toString();
+  const encodedDownloadUrl = window.btoa(absoluteDownloadUrl);
+  const separator = meta.previewServiceUrl.includes('?')
+    ? meta.previewServiceUrl.endsWith('?') || meta.previewServiceUrl.endsWith('&')
+      ? ''
+      : '&'
+    : '?';
+  return `${meta.previewServiceUrl}${separator}url=${encodeURIComponent(encodedDownloadUrl)}`;
+}
+
+export async function getOfficePreviewUrl(id: number): Promise<string> {
+  return buildOfficePreviewUrl(await getOfficePreviewMeta(id));
 }
 
 export async function getResourcePreviewText(id: number): Promise<ResourcePreviewVO> {

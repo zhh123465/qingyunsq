@@ -31,10 +31,14 @@ class MimeBlocklistPropertyTest {
 
     /** 已注册的扩展名集合（与 MimeTypeValidator.EXT_TO_MIMES keys 保持同步）。 */
     private static final Set<String> REGISTERED_EXTS = Set.of(
-            "jpg", "jpeg", "png", "gif", "webp",
+            "jpg", "jpeg", "png", "gif", "webp", "bmp",
             "pdf",
-            "docx", "xlsx", "pptx",
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx",
             "zip",
+            "txt", "log", "csv", "json", "xml", "yml", "yaml",
+            "sql", "java", "py", "js", "jsx", "ts", "tsx", "vue",
+            "css", "scss", "html", "htm",
+            "mp4", "webm", "mov", "avi", "mp3", "wav", "m4a", "ogg",
             "md", "markdown"
     );
 

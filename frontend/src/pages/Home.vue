@@ -4,9 +4,8 @@ import { NIcon } from 'naive-ui';
 import {
   ArrowForwardOutline,
   BookOutline,
-  ChatbubblesOutline,
   CloudDownloadOutline,
-  CalendarOutline,
+  FolderOpenOutline,
   SparklesOutline,
 } from '@vicons/ionicons5';
 
@@ -14,19 +13,19 @@ const router = useRouter();
 
 const modules = [
   {
-    title: '广场讨论',
-    text: '快速浏览校园帖子、问答和热门话题。',
-    icon: ChatbubblesOutline,
+    title: '资源归档',
+    text: '把文档、课件、代码与资料按主题整理。',
+    icon: CloudDownloadOutline,
   },
   {
-    title: '学习圈',
-    text: '按课程、兴趣和项目沉淀长期交流。',
+    title: '学习笔记',
+    text: '按课程、项目和计划沉淀长期知识。',
     icon: BookOutline,
   },
   {
-    title: '资源协作',
-    text: '上传、检索和下载可复用学习资料。',
-    icon: CloudDownloadOutline,
+    title: '工具整理',
+    text: '把常用软件、工具入口和使用记录集中管理。',
+    icon: FolderOpenOutline,
   },
 ];
 </script>
@@ -36,12 +35,11 @@ const modules = [
     <!-- Top Header -->
     <header class="home-nav">
       <button class="brand" @click="router.push('/')">
-        <img src="@/assets/images/logo.png" alt="青云阁" class="brand-img" />
-        <span class="brand-text">青云阁</span>
+        <span class="brand-text">小青知识库</span>
       </button>
       <nav>
         <button class="nav-btn-secondary" @click="router.push('/login')">登录</button>
-        <button class="nav-btn-primary" @click="router.push('/register')">加入社区</button>
+        <button class="nav-btn-primary" @click="router.push('/register')">开始使用</button>
       </nav>
     </header>
 
@@ -50,35 +48,28 @@ const modules = [
       <!-- Hero Section -->
       <section class="hero-section">
         <div class="hero-content">
-          <span class="cf-pill mb-4">青云阁社区</span>
+          <span class="cf-pill mb-4">小青知识库</span>
           <h1 class="hero-headline">
-            校园讨论、学习圈与
-            <span class="gradient-text">资源协作</span>
+            资源、工具与
+            <span class="gradient-text">学习笔记</span>
             都在这里
           </h1>
           <p class="hero-sub">
-            从广场交流到打卡挑战，从资料共享到 AI 辅助学习，青云阁
-            帮你把校园里的信息流整理成可参与、可沉淀的社区体验。
+            从资料归档到软件清单，从学习记录到 AI 辅助整理，小青知识库
+            帮你把零散信息沉淀成清晰、可检索的个人知识空间。
           </p>
           <div class="hero-actions">
             <button class="primary-action" @click="router.push('/register')">
-              立即加入社区
+              开始整理
               <NIcon size="18">
                 <ArrowForwardOutline />
               </NIcon>
             </button>
-            <button class="secondary-action" @click="router.push('/square')">进入广场</button>
+            <button class="secondary-action" @click="router.push('/resources')">查看资源</button>
           </div>
         </div>
 
-        <!-- Big Hero Workspace Image -->
-        <div class="hero-showcase cf-card">
-          <img
-            src="@/assets/images/hero_workspace.png"
-            alt="青云阁 Workspace Mockup"
-            class="showcase-img"
-          />
-        </div>
+        <!-- Hero text + actions -->
       </section>
 
       <!-- Feature Three-Column Grid -->
@@ -99,28 +90,21 @@ const modules = [
       <!-- Hot Topics / Community Updates Section -->
       <section class="topics-section">
         <div class="section-header">
-          <h2 class="cf-section-title">社区热门动态</h2>
-          <p class="cf-section-subtitle">探索校园里正在发生的精彩讨论与知识分享</p>
+          <h2 class="cf-section-title">知识库精选</h2>
+          <p class="cf-section-subtitle">整理近期常用资料、学习笔记与工具清单</p>
         </div>
 
         <div class="topics-grid">
           <!-- Left: Big Featured Post Card -->
           <article class="featured-card cf-card">
-            <div class="featured-img-container">
-              <img
-                src="@/assets/images/abstract_network.png"
-                alt="Featured Topic Cover"
-                class="featured-img"
-              />
-            </div>
             <div class="featured-content">
               <div class="tag-row">
                 <span class="topic-tag tag-primary">学术探索</span>
                 <span class="topic-tag tag-secondary">指南</span>
               </div>
-              <h3 class="featured-title">如何在青云阁中更高效地建立属于你的学术讨论圈</h3>
+              <h3 class="featured-title">如何在小青知识库中搭建个人资料目录</h3>
               <p class="featured-desc">
-                在这里，你可以按课程、兴趣和项目创建特定的学习板块，邀请同伴一起讨论学习，沉淀知识。
+                按课程、项目和文件类型建立主题目录，让常用资源、笔记和工具入口更容易被再次找到。
               </p>
             </div>
           </article>
@@ -134,12 +118,12 @@ const modules = [
                   <NIcon size="16">
                     <SparklesOutline />
                   </NIcon>
-                  <span>AI 助手</span>
+                  <span>AI 知识库</span>
                 </div>
                 <span class="mini-time">1 天前</span>
               </div>
               <h3 class="mini-title">AI 问答助手已全面上线</h3>
-              <p class="mini-desc">提供智能提炼核心观点，帮您整理讨论方向。</p>
+              <p class="mini-desc">提供智能提炼核心观点，帮你整理笔记脉络。</p>
             </article>
 
             <!-- Mini Card 2 -->
@@ -147,7 +131,7 @@ const modules = [
               <div class="mini-card-header">
                 <div class="mini-tag tag-blue">
                   <NIcon size="16">
-                    <CalendarOutline />
+                    <FolderOpenOutline />
                   </NIcon>
                   <span>资源共享</span>
                 </div>
@@ -164,10 +148,10 @@ const modules = [
       <section class="bottom-cta-section">
         <div class="cta-banner cf-card">
           <div class="cta-content">
-            <h2>开启你的校园协作之旅，与大家一同交流成长</h2>
-            <p>加入青云阁，探索更高效的学习交流与学术研讨空间。</p>
+            <h2>开始整理你的个人知识库</h2>
+            <p>使用小青知识库，管理资源、软件、工具和学习笔记。</p>
             <button class="primary-action cta-btn" @click="router.push('/register')">
-              立即加入社区
+              开始使用
               <NIcon size="18">
                 <ArrowForwardOutline />
               </NIcon>
@@ -181,24 +165,23 @@ const modules = [
     <footer class="home-footer">
       <div class="footer-grid">
         <div class="footer-brand">
-          <img src="@/assets/images/logo.png" alt="青云阁" class="footer-logo-img" />
-          <span class="footer-brand-name">青云阁</span>
+          <span class="footer-brand-name">小青知识库</span>
         </div>
         <div class="footer-links">
           <div class="link-group">
-            <h4>探索</h4>
-            <button @click="router.push('/square')">校园广场</button>
-            <button @click="router.push('/spaces')">学习圈子</button>
+            <h4>知识</h4>
+            <button @click="router.push('/resources')">资源目录</button>
+            <button @click="router.push('/learning')">学习笔记</button>
           </div>
           <div class="link-group">
-            <h4>资源</h4>
-            <button @click="router.push('/resources')">学习资料</button>
-            <button @click="router.push('/checkin')">打卡挑战</button>
+            <h4>整理</h4>
+            <button @click="router.push('/tools')">工具</button>
+            <button @click="router.push('/software')">软件</button>
           </div>
         </div>
       </div>
       <div class="footer-bottom">
-        <p>© 2026 青云阁. All Rights Reserved. 激发学术与校园社交的无限可能</p>
+        <p>© 2026 小青知识库. All Rights Reserved. 让个人知识更清晰可检索</p>
       </div>
     </footer>
   </div>

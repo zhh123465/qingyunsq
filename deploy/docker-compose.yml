@@ -5,8 +5,10 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
       - ../frontend/dist:/usr/share/nginx/html:ro
     depends_on:
       - app
@@ -33,10 +35,6 @@ services:
       - WS_TICKET_ENFORCED=${WS_TICKET_ENFORCED:-false}
       - WS_TICKET_TTL_SECONDS=${WS_TICKET_TTL_SECONDS:-30}
       - SPRINGDOC_ENABLED=${SPRINGDOC_ENABLED:-false}
-      - AI_PROVIDER=${AI_PROVIDER:-mock}
-      - AI_API_KEY=${AI_API_KEY:-}
-      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
-      - AI_MODEL=${AI_MODEL:-deepseek-v4-flash}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       - DEEPSEEK_API_KEY
       - MIMO_BASE_URL=${MIMO_BASE_URL:-https://api.xiaomimimo.com/v1}
@@ -71,9 +69,30 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - EMAIL_FROM=${EMAIL_FROM}
       - RESET_LINK_BASE=${RESET_LINK_BASE}
-      - OFFICE_PREVIEW_URL=${OFFICE_PREVIEW_URL:-http://kkfileview:8012/onlinePreview}
+      # Office 在线预览（可选）：需自行部署 kkfileview 兼容服务并设置此变量。
+      # 留空则前端 office 预览降级为"请下载查看"，不影响 PDF/图片/音视频预览与下载。
+      # 启用方式：取消文件末尾被注释的 kkfileview 服务块，并把本变量设为 http://kkfileview:8012/onlinePreview。
+      - OFFICE_PREVIEW_URL=${OFFICE_PREVIEW_URL:-}
       - UPLOAD_REAL_MIME_CHECK=${UPLOAD_REAL_MIME_CHECK:-true}
+      # 审核流（2026-07-13）：任意扩展名上传进待审队列 + 审核邮件里的后台链接域名
+      - UPLOAD_ALLOW_ANY_EXTENSION=${UPLOAD_ALLOW_ANY_EXTENSION:-true}
+      - EMAIL_SITE_BASE_URL=${EMAIL_SITE_BASE_URL:-https://www.qingyunsq.top}
       - MANAGEMENT_HEALTH_MAIL_ENABLED=false
+      # GitHub 授权码登录（海外 API 走宿主机代理，2026-07-12 接通）
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-}
+      - SOCIAL_PROXY_HOST=${SOCIAL_PROXY_HOST:-}
+      - SOCIAL_PROXY_PORT=${SOCIAL_PROXY_PORT:-0}
+      # 外部笔记同步（走宿主机代理）
+      - NOTE_SYNC_PROXY_HOST=${NOTE_SYNC_PROXY_HOST:-}
+      - NOTE_SYNC_PROXY_PORT=${NOTE_SYNC_PROXY_PORT:-0}
+      - NOTE_SYNC_TIMEOUT_MS=${NOTE_SYNC_TIMEOUT_MS:-15000}
+      - NOTE_SYNC_MAX_PAGES=${NOTE_SYNC_MAX_PAGES:-50}
+      - NOTE_SYNC_ALLOWED_HOSTS=${NOTE_SYNC_ALLOWED_HOSTS:-blog-wheat-one-34.vercel.app,www.cnblogs.com}
+    extra_hosts:
+      # 让容器能走宿主机 7890 端口的 http 代理（NOTE_SYNC_PROXY_HOST=host.docker.internal）
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -118,6 +137,15 @@ services:
     volumes:
       - meili_data:/meili_data
     restart: always
+
+  # ---- 可选：Office 在线预览服务（kkfileview），默认未启用 ----
+  # 启用步骤：① 取消下方注释；② 把上面 app 的 OFFICE_PREVIEW_URL 设为 http://kkfileview:8012/onlinePreview。
+  # 安全提示：kkfileview 历史上存在 SSRF 等漏洞，请使用较新版本并仅在内网暴露，勿直接对公网开放。
+  # kkfileview:
+  #   image: keking/kkfileview:4.4.0
+  #   restart: always
+  #   expose:
+  #     - "8012"
 
 volumes:
   mysql_data:

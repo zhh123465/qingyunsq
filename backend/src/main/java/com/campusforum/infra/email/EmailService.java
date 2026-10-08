@@ -22,4 +22,13 @@ public interface EmailService {
      * @param resetToken 重置令牌
      */
     void sendResetEmail(String toEmail, String resetToken);
+
+    /**
+     * 发送通用通知邮件（如资源审核提醒）。
+     *
+     * @param toEmail 收件人邮箱
+     * @param subject 邮件主题
+     * @param htmlContent HTML 正文（调用方负责对用户可控内容做转义）
+     */
+    void sendNotice(String toEmail, String subject, String htmlContent);
 }

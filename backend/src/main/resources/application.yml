@@ -11,21 +11,23 @@ spring:
     date-format: yyyy-MM-dd'T'HH:mm:ss
   servlet:
     # 文件上传大小硬上限（缺陷 1.13）：
-    # 原本仅有自定义 upload.max-file-size 但未对接 Spring，默认 1MB 实际生效；
-    # 这里显式声明，与 Resource 模块的 50MB 业务上限对齐。
+    # 原本仅有自定义 upload.max-file-size 但未对接 Spring，默认 1MB 实际生效。
+    # 2026-07-13 审核流：上限 50MB→200MB（支持安装包等大文件），nginx client_max_body_size 同步 210m。
     multipart:
-      max-file-size: 50MB
-      max-request-size: 60MB
+      max-file-size: 200MB
+      max-request-size: 210MB
   datasource:
-    url: jdbc:mysql://192.168.150.130:3306/campus_forum?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
-    username: root
-    password: 123456
+    # base 层不写死任何真实环境 IP/口令：默认连本地，便于开箱即用且不泄露内网信息。
+    # dev 由 application-dev.yml 覆盖为开发机地址；prod 由 application-prod.yml 用 ENV 注入（无字面默认）。
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/campus_forum?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      host: 192.168.150.130
-      port: 6379
-      password: 123456
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
   websocket:
     endpoint:
       path: /ws/notify
@@ -41,6 +43,13 @@ spring:
       mail.smtp.connectiontimeout: 10000
       mail.smtp.timeout: 10000
       mail.smtp.writetimeout: 10000
+  # Flyway 数据库自动迁移：替代手工执行 db/migrations/*.sql。
+  # baseline-on-migrate=true + baseline-version 确保存量生产库只记录基线不重复执行历史迁移。
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: "20260624_02"
 
 mybatis-plus:
   global-config:
@@ -87,18 +96,15 @@ tenant:
     ttl: 60s                     # 缓存过期时间（写入后）
 
 # ---------- AI 配置 ----------
-# 注：以下 base-url / api-key / model 仅作为兜底 fallback；
-# 生产实际使用的 AI 配置由各租户在管理台动态配置，存储于 tenants.ai_config 字段，
-# 由 TenantAwareAiService 每次请求时读取并优先生效。
+# 注：AI 真实生效路径有两条（TenantAwareAiService 决策，详见 agents.md §5.4）：
+# ① 租户级 tenants.ai_config（管理台配置、加密存储，优先生效）；
+# ② 全局 provider 池 ai.providers.*（按请求 model 前缀路由：deepseek-* / mimo-*）。
+# 原顶层 ai.provider/base-url/api-key/model 从未被代码读取（死配置），2026-07-11 已删除。
 ai:
-  provider: mock  # openai | ollama | mock
-  base-url: https://api.deepseek.com
-  api-key: ${AI_API_KEY:}
-  model: deepseek-v4-flash
   providers:
     deepseek:
       base-url: https://api.deepseek.com
-      api-key: ${DEEPSEEK_API_KEY:${AI_API_KEY:}}
+      api-key: ${DEEPSEEK_API_KEY:}
     mimo:
       base-url: https://api.xiaomimimo.com/v1
       api-key: ${MIMO_API_KEY:}
@@ -155,7 +161,7 @@ upload:
   max-file-size: 50MB
   # 安全加固（缺陷 1.23）：默认列表移除 zip/rar/7z 等压缩包，避免恶意载荷扩散；
   # 如确需开启，由租户管理员在 application-prod.yml / ENV 显式覆盖。
-  allowed-extensions: pdf,doc,docx,ppt,pptx,xls,xlsx,jpg,jpeg,png,gif,webp,md,markdown
+  allowed-extensions: pdf,doc,docx,ppt,pptx,xls,xlsx,txt,log,csv,json,xml,yml,yaml,sql,java,py,js,jsx,ts,tsx,vue,css,scss,html,htm,jpg,jpeg,png,gif,webp,bmp,mp4,webm,mov,avi,mp3,wav,m4a,ogg,md,markdown
 
 # ---------- 限流配置 ----------
 rate-limit:
@@ -187,6 +193,9 @@ rate-limit:
       max-requests: 10
       window-seconds: 60
     "[POST /api/v1/auth/login]":
+      max-requests: 10
+      window-seconds: 60
+    "[POST /api/v1/auth/wechat-login]":
       max-requests: 10
       window-seconds: 60
     "[POST /api/v1/auth/register]":

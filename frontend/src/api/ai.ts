@@ -1,5 +1,5 @@
 import { request } from './request';
-import type { AiResponse, PostAiCard } from '@/types/ai';
+import type { AiResponse, PostAiCard, RateLimitStatus } from '@/types/ai';
 
 export async function aiSummarize(content: string): Promise<AiResponse> {
   const res = await request<AiResponse>({ method: 'POST', url: '/ai/summarize', data: { content } });
@@ -58,4 +58,9 @@ export async function getPostAiCardsBatch(postIds: Array<number | string>): Prom
     data: ids,
   });
   return res.data ?? {};
+}
+
+export async function getRateLimitStatus(): Promise<RateLimitStatus> {
+  const res = await request<RateLimitStatus>({ method: 'GET', url: '/ai/rate-limit-status' });
+  return res.data;
 }

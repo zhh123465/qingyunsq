@@ -3,6 +3,8 @@ package com.campusforum.admin.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 管理面板首页统计 VO。
  *
@@ -24,4 +26,12 @@ public class DashboardVO {
     private Long commentCount;
     private Long todayPostCount;
     private Long todayUserCount;
+
+    // === 扩展字段：dashboard 换真数据 ===
+    /** 过去 7 天（含今天）每天新增帖子/用户/评论数量，按日期升序，缺失日期补 0。 */
+    private List<DailyStat> weeklyTrend;
+    /** 当前租户下 spaces 按 category 分组的分布，用于饼图展示。 */
+    private List<CategoryStat> spaceCategoryDist;
+    /** 最近 5 条审计日志，用于面板底部"最近操作"卡片。 */
+    private List<AuditLogVO> recentAuditLogs;
 }

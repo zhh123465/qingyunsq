@@ -38,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MeiliSearchClient {
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    // ObjectMapper 线程安全且无实例级配置，按类共享单例
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     private final String host;
     private final String apiKey;
     private final boolean active;
@@ -68,7 +69,6 @@ public class MeiliSearchClient {
         this.apiKey = apiKey;
         this.active = "meilisearch".equals(type);
         this.restTemplate = new RestTemplate();
-        this.objectMapper = new ObjectMapper();
         this.securityMetrics = securityMetrics;
     }
 

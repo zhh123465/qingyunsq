@@ -2,7 +2,10 @@ package com.campusforum.tenant.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.campusforum.common.BusinessException;
+import com.campusforum.common.ErrorCode;
 import com.campusforum.common.R;
+import com.campusforum.tenant.TenantContext;
 import com.campusforum.tenant.audit.TenantAuditService;
 import com.campusforum.tenant.domain.Tenant;
 import com.campusforum.tenant.service.TenantService;
@@ -58,8 +61,9 @@ public class TenantController {
     }
 
     @GetMapping("/{id}/ai-config")
-    @SaCheckPermission("super:tenant:manage")
+    @SaCheckPermission("tenant:self:ai-config")
     public R<Map<String, Object>> getAiConfig(@PathVariable Long id) {
+        assertSameTenantOrSuper(id);
         Map<String, Object> cfg = new LinkedHashMap<>(tenantService.getAiConfig(id));
         // 敏感字段 apiKey 永远不以明文形式离开后端，前端只能看到掩码视图。
         if (cfg.get("apiKey") instanceof String s) {
@@ -69,9 +73,10 @@ public class TenantController {
     }
 
     @PutMapping("/{id}/ai-config")
-    @SaCheckPermission("super:tenant:manage")
+    @SaCheckPermission("tenant:self:ai-config")
     public R<Void> updateAiConfig(@PathVariable Long id, @RequestBody Map<String, String> body,
                                   HttpServletRequest req) {
+        assertSameTenantOrSuper(id);
         String provider = body.get("provider");
         String baseUrl = body.get("baseUrl");
         String apiKey = body.get("apiKey");
@@ -130,5 +135,20 @@ public class TenantController {
         if (key == null || key.isBlank()) return "<empty>";
         if (key.length() < 8) return "*".repeat(key.length());
         return key.substring(0, 4) + "***" + key.substring(key.length() - 4);
+    }
+
+    /**
+     * 权限扩容：TENANT_ADMIN 允许管理自己租户的 AI 配置，但不能跨租户。
+     * 仅当路径 id 与当前 TenantContext 一致，或当前是 SUPER_ADMIN，才允许通过。
+     */
+    private void assertSameTenantOrSuper(Long pathTenantId) {
+        if (StpUtil.hasPermission("super:tenant:manage")) {
+            return;
+        }
+        Long current = TenantContext.getTenantId();
+        if (current == null || !current.equals(pathTenantId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(),
+                    "无权管理其他租户的 AI 配置");
+        }
     }
 }

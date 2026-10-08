@@ -76,6 +76,7 @@ public class SecurityStartupValidator implements ApplicationRunner {
      */
     private static final Set<String> SENSITIVE_PATH_PREFIXES = Set.of(
             "/api/v1/auth/login",
+            "/api/v1/auth/wechat-login",
             "/api/v1/auth/register",
             "/api/v1/auth/forgot-password",
             "/api/v1/auth/reset-password",

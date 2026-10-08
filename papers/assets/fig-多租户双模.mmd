@@ -1,0 +1,28 @@
+graph LR
+  subgraph 配置层
+    P[tenant.mode]
+    P1[standalone]
+    P2[multi]
+    P --> P1
+    P --> P2
+  end
+  subgraph 装配层
+    R[TenantResolver 接口]
+    R1["StandaloneTenantResolver<br/>ConditionalOnProperty"]
+    R2["MultiTenantResolver<br/>ConditionalOnProperty"]
+    R --> R1
+    R --> R2
+  end
+  subgraph 运行层
+    F[TenantResolutionFilter]
+    C[TenantContext ThreadLocal]
+    M[MyBatis-Plus TenantLineInnerInterceptor]
+    D[(MySQL 业务表)]
+  end
+  P1 -.激活.-> R1
+  P2 -.激活.-> R2
+  R1 --> F
+  R2 --> F
+  F -->|setTenantId| C
+  C -->|getTenantId| M
+  M -->|自动注入 tenant_id| D

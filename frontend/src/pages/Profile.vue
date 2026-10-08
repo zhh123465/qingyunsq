@@ -9,6 +9,8 @@ import {
   CheckmarkCircleOutline,
   CopyOutline,
   DocumentTextOutline,
+  EyeOffOutline,
+  EyeOutline,
   HeartOutline,
   MedalOutline,
   SaveOutline,
@@ -42,7 +44,7 @@ const loading = ref(true);
 const saving = ref(false);
 const assetUploading = ref<'avatar' | 'cover' | null>(null);
 const editing = ref(false);
-const activeTab = ref('动态');
+const activeTab = ref('上传的资源');
 const followsVisible = ref(false);
 const followsLoading = ref(false);
 const followsTab = ref<'followers' | 'following'>('following');
@@ -67,17 +69,20 @@ const passwordForm = ref({
   confirmPassword: '',
 });
 const passwordSaving = ref(false);
+const showOldPassword = ref(false);
+const showNewPassword = ref(false);
+const showConfirmPassword = ref(false);
 const passwordState = ref({
   oldPassword: { active: false, touched: false, error: '', shaking: false },
   newPassword: { active: false, touched: false, error: '', shaking: false },
   confirmPassword: { active: false, touched: false, error: '', shaking: false },
 });
 
-const tabs = ['动态', '帖子', '打卡', '成就'];
+const tabs = ['上传的资源', '软件', '学习记录', '整理成果'];
 const avatarText = computed(() => user.value?.nickname?.charAt(0)?.toUpperCase() || 'U');
 const profilePasswordStrength = computed(() => getPasswordStrength(passwordForm.value.newPassword));
 const profileTitle = computed(() => {
-  if (!user.value) return '校园资料待同步';
+  if (!user.value) return '资料待同步';
   return [user.value.college, user.value.major, user.value.grade].filter(Boolean).join(' · ') || '正在完善学习档案';
 });
 const likeCount = computed(() => posts.value.reduce((sum, post) => sum + post.likeCount, 0));
@@ -93,7 +98,7 @@ const profileChallenges = computed(() =>
     .sort((a, b) => (b.myConsecutiveDays || 0) - (a.myConsecutiveDays || 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
 );
 const checkinStreak = computed(() => Math.max(0, ...profileChallenges.value.map((item) => item.myConsecutiveDays || 0)));
-const feedPosts = computed(() => (activeTab.value === '动态' ? posts.value.slice(0, 6) : posts.value));
+const feedPosts = computed(() => (activeTab.value === '上传的资源' ? posts.value.slice(0, 6) : posts.value));
 const profileLink = computed(() => {
   if (!user.value?.id) return '';
   return `${window.location.origin}/users/${user.value.id}`;
@@ -117,7 +122,7 @@ async function loadProfile() {
     challenges.value = challengeList;
   } catch (error) {
     user.value = null;
-    message.error(error instanceof Error ? error.message : '个人主页加载失败');
+    message.error(error instanceof Error ? error.message : '个人中心加载失败');
   } finally {
     loading.value = false;
   }
@@ -302,7 +307,7 @@ async function handleAssetChange(event: Event, target: 'avatar' | 'cover') {
     } else {
       form.value.profileCoverUrl = asset.url;
     }
-    message.success(target === 'avatar' ? '头像已上传' : '主页封面已上传');
+    message.success(target === 'avatar' ? '头像已上传' : '封面已上传');
   } catch (error) {
     message.error(error instanceof Error ? error.message : '图片上传失败');
   } finally {
@@ -311,10 +316,10 @@ async function handleAssetChange(event: Event, target: 'avatar' | 'cover') {
 }
 
 function tabCount(tab: string) {
-  if (tab === '帖子') return posts.value.length;
-  if (tab === '打卡') return profileChallenges.value.length;
-  if (tab === '成就') return achievements.value.length;
-  return posts.value.length + profileChallenges.value.length;
+  if (tab === '上传的资源') return posts.value.length;
+  if (tab === '软件') return profileChallenges.value.length;
+  if (tab === '整理成果') return achievements.value.length;
+  return profileChallenges.value.length;
 }
 
 async function goFollows(tab: 'followers' | 'following') {
@@ -329,7 +334,7 @@ async function goFollows(tab: 'followers' | 'following') {
         : await getUserFollowing(user.value.id, undefined, 30);
   } catch {
     followUsers.value = [];
-    message.error('关注列表加载失败');
+    message.error('清单加载失败');
   } finally {
     followsLoading.value = false;
   }
@@ -340,25 +345,29 @@ function openLikes() {
 }
 
 function goPost(postId: number) {
-  router.push(`/posts/${postId}`);
+  router.push('/resources');
 }
 
 function goChallenge(challengeId: number) {
-  router.push(`/checkin/${challengeId}`);
+  router.push('/learning');
+}
+
+function goSoftware() {
+  router.push('/software');
 }
 
 function goCreatePost() {
-  router.push('/posts/new');
+  router.push('/resources/upload');
 }
 
 function goCheckin() {
-  router.push('/checkin');
+  router.push('/learning');
 }
 
 async function copyProfileLink() {
   if (!profileLink.value) return;
   if (await copyTextToClipboard(profileLink.value)) {
-    message.success('主页链接已复制');
+    message.success('个人中心链接已复制');
   } else {
     message.warning(`复制失败，请手动复制：${profileLink.value}`);
   }
@@ -386,7 +395,7 @@ function formatCompactNumber(value?: number | null) {
 }
 
 function postTitle(post: PostVO) {
-  return post.title || '无标题动态';
+  return post.title || '未命名资源';
 }
 
 function postPreview(content: string) {
@@ -408,11 +417,11 @@ onMounted(loadProfile);
         <n-icon size="20">
           <ArrowBackOutline />
         </n-icon>
-        <span>个人主页</span>
+        <span>个人中心</span>
       </button>
       <div class="header-actions">
         <button
-          title="复制主页链接"
+          title="复制个人中心链接"
           type="button"
           @click="copyProfileLink"
         >
@@ -438,7 +447,7 @@ onMounted(loadProfile);
         class="profile-loading glass-card"
       >
         <n-spin size="large" />
-        <span>正在加载个人主页</span>
+        <span>正在加载个人中心</span>
       </div>
 
       <div
@@ -449,13 +458,13 @@ onMounted(loadProfile);
           <button
             class="cover-edit-hit"
             type="button"
-            title="修改主页封面"
+            title="修改知识库封面"
             @click="editing = true"
           >
             <img
               :src="user.profileCoverUrl || auroraBg"
               class="cover-img"
-              alt="个人主页封面"
+              alt="知识库封面"
             />
           </button>
           <div class="profile-main-info">
@@ -497,7 +506,7 @@ onMounted(loadProfile);
                   type="button"
                   @click="goFollows('following')"
                 >
-                  <span class="label">关注</span>
+                  <span class="label">收藏资源</span>
                   <span class="val">{{ formatCompactNumber(followCounts.following) }}</span>
                 </button>
                 <button
@@ -505,7 +514,7 @@ onMounted(loadProfile);
                   type="button"
                   @click="goFollows('followers')"
                 >
-                  <span class="label">粉丝</span>
+                  <span class="label">软件清单</span>
                   <span class="val">{{ formatCompactNumber(followCounts.followers) }}</span>
                 </button>
                 <button
@@ -513,7 +522,7 @@ onMounted(loadProfile);
                   type="button"
                   @click="openLikes"
                 >
-                  <span class="label">获赞</span>
+                  <span class="label">整理反馈</span>
                   <span class="val">{{ formatCompactNumber(likeCount) }}</span>
                 </button>
                 <button
@@ -535,7 +544,7 @@ onMounted(loadProfile);
             <img
               :src="form.profileCoverUrl || auroraBg"
               class="cover-img"
-              alt="个人主页封面预览"
+              alt="知识库封面预览"
             />
             <button
               class="edit-cover-btn"
@@ -604,7 +613,7 @@ onMounted(loadProfile);
             </button>
           </div>
           <div class="asset-field wide">
-            <span>主页封面</span>
+            <span>知识库封面</span>
             <button
               type="button"
               :disabled="Boolean(assetUploading)"
@@ -643,14 +652,26 @@ onMounted(loadProfile);
                 :class="{ invalid: passwordState.oldPassword.touched && passwordState.oldPassword.error, shake: passwordState.oldPassword.shaking }"
               >
                 <span>当前密码</span>
-                <input
-                  v-model="passwordForm.oldPassword"
-                  type="password"
-                  autocomplete="current-password"
-                  @focus="focusPasswordField('oldPassword')"
-                  @blur="blurPasswordField('oldPassword')"
-                  @input="validatePasswordField('oldPassword')"
-                />
+                <div class="relative">
+                  <input
+                    v-model="passwordForm.oldPassword"
+                    :type="showOldPassword ? 'text' : 'password'"
+                    autocomplete="current-password"
+                    class="pr-10"
+                    @focus="focusPasswordField('oldPassword')"
+                    @blur="blurPasswordField('oldPassword')"
+                    @input="validatePasswordField('oldPassword')"
+                  />
+                  <button
+                    type="button"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                    @click="showOldPassword = !showOldPassword"
+                    tabindex="-1"
+                  >
+                    <EyeOffOutline v-if="showOldPassword" class="w-5 h-5" />
+                    <EyeOutline v-else class="w-5 h-5" />
+                  </button>
+                </div>
                 <small
                   v-if="passwordState.oldPassword.touched && passwordState.oldPassword.error"
                   class="field-hint error"
@@ -663,16 +684,28 @@ onMounted(loadProfile);
                 :class="{ invalid: passwordState.newPassword.touched && passwordState.newPassword.error, shake: passwordState.newPassword.shaking }"
               >
                 <span>新密码</span>
-                <input
-                  v-model="passwordForm.newPassword"
-                  type="password"
-                  maxlength="32"
-                  autocomplete="new-password"
-                  placeholder="8-32 位新密码"
-                  @focus="focusPasswordField('newPassword')"
-                  @blur="blurPasswordField('newPassword')"
-                  @input="validatePasswordField('newPassword')"
-                />
+                <div class="relative">
+                  <input
+                    v-model="passwordForm.newPassword"
+                    :type="showNewPassword ? 'text' : 'password'"
+                    maxlength="32"
+                    autocomplete="new-password"
+                    placeholder="8-32 位新密码"
+                    class="pr-10"
+                    @focus="focusPasswordField('newPassword')"
+                    @blur="blurPasswordField('newPassword')"
+                    @input="validatePasswordField('newPassword')"
+                  />
+                  <button
+                    type="button"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                    @click="showNewPassword = !showNewPassword"
+                    tabindex="-1"
+                  >
+                    <EyeOffOutline v-if="showNewPassword" class="w-5 h-5" />
+                    <EyeOutline v-else class="w-5 h-5" />
+                  </button>
+                </div>
                 <div
                   v-if="passwordState.newPassword.active || passwordForm.newPassword"
                   class="password-strength"
@@ -695,15 +728,27 @@ onMounted(loadProfile);
                 :class="{ invalid: passwordState.confirmPassword.touched && passwordState.confirmPassword.error, shake: passwordState.confirmPassword.shaking }"
               >
                 <span>确认新密码</span>
-                <input
-                  v-model="passwordForm.confirmPassword"
-                  type="password"
-                  maxlength="32"
-                  autocomplete="new-password"
-                  @focus="focusPasswordField('confirmPassword')"
-                  @blur="blurPasswordField('confirmPassword')"
-                  @input="validatePasswordField('confirmPassword')"
-                />
+                <div class="relative">
+                  <input
+                    v-model="passwordForm.confirmPassword"
+                    :type="showConfirmPassword ? 'text' : 'password'"
+                    maxlength="32"
+                    autocomplete="new-password"
+                    class="pr-10"
+                    @focus="focusPasswordField('confirmPassword')"
+                    @blur="blurPasswordField('confirmPassword')"
+                    @input="validatePasswordField('confirmPassword')"
+                  />
+                  <button
+                    type="button"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+                    @click="showConfirmPassword = !showConfirmPassword"
+                    tabindex="-1"
+                  >
+                    <EyeOffOutline v-if="showConfirmPassword" class="w-5 h-5" />
+                    <EyeOutline v-else class="w-5 h-5" />
+                  </button>
+                </div>
                 <small
                   v-if="passwordState.confirmPassword.touched && passwordState.confirmPassword.error"
                   class="field-hint error"
@@ -758,7 +803,7 @@ onMounted(loadProfile);
             </nav>
 
             <div class="feed-list">
-              <template v-if="activeTab === '动态' || activeTab === '帖子'">
+              <template v-if="activeTab === '上传的资源'">
                 <article
                   v-for="post in feedPosts"
                   :key="post.id"
@@ -791,18 +836,18 @@ onMounted(loadProfile);
                   v-if="feedPosts.length === 0"
                   class="empty-card glass-card"
                 >
-                  <n-empty description="还没有发布过帖子" />
+                  <n-empty description="还没有上传资源" />
                   <button
                     class="primary-btn"
                     type="button"
                     @click="goCreatePost"
                   >
-                    发布第一篇帖子
+                    上传资源
                   </button>
                 </div>
               </template>
 
-              <template v-else-if="activeTab === '打卡'">
+              <template v-else-if="activeTab === '软件' || activeTab === '学习记录'">
                 <article
                   v-for="challenge in profileChallenges"
                   :key="challenge.id"
@@ -819,25 +864,25 @@ onMounted(loadProfile);
                     </div>
                   </div>
                   <div class="feed-content">
-                    <p>{{ challenge.description || '这个打卡挑战还没有简介。' }}</p>
+                    <p>{{ challenge.description || '这个条目还没有说明。' }}</p>
                   </div>
                   <div class="feed-actions">
                     <span class="action">累计 {{ challenge.myTotalDays || 0 }} 天</span>
                     <span class="action">连续 {{ challenge.myConsecutiveDays || 0 }} 天</span>
-                    <span class="action">参与 {{ challenge.memberCount }} 人</span>
+                    <span class="action">条目 {{ challenge.memberCount }}</span>
                   </div>
                 </article>
                 <div
                   v-if="profileChallenges.length === 0"
                   class="empty-card glass-card"
                 >
-                  <n-empty description="还没有参与打卡挑战" />
+                  <n-empty :description="activeTab === '软件' ? '还没有整理软件' : '还没有学习记录'" />
                   <button
                     class="primary-btn"
                     type="button"
-                    @click="goCheckin"
+                    @click="activeTab === '软件' ? goSoftware() : goCheckin()"
                   >
-                    去打卡广场
+                    {{ activeTab === '软件' ? '查看软件' : '查看学习' }}
                   </button>
                 </div>
               </template>
@@ -862,7 +907,7 @@ onMounted(loadProfile);
                   v-if="achievements.length === 0"
                   class="empty-card glass-card"
                 >
-                  <n-empty description="暂无成就数据" />
+                  <n-empty description="暂无整理成果" />
                 </div>
               </template>
             </div>
@@ -871,10 +916,10 @@ onMounted(loadProfile);
           <aside class="sidebar-right">
             <section class="glass-card widget">
               <div class="widget-header">
-                <h3>个人成就</h3>
+                <h3>整理成果</h3>
                 <button
                   type="button"
-                  @click="activeTab = '成就'"
+                  @click="activeTab = '整理成果'"
                 >
                   {{ awardedAchievements.length }}/{{ achievements.length || 0 }}
                 </button>
@@ -890,25 +935,25 @@ onMounted(loadProfile);
                   class="badge neon-glow"
                   :class="{ locked: !achievement.awarded }"
                   :title="achievement.name"
-                  @click="activeTab = '成就'"
+                  @click="activeTab = '整理成果'"
                 >
                   {{ achievement.name.charAt(0) }}
                 </button>
               </div>
               <p
-                v-else
-                class="widget-empty"
-              >
-                暂无成就数据
+              v-else
+              class="widget-empty"
+            >
+                暂无整理成果
               </p>
             </section>
 
             <section class="glass-card widget">
               <div class="widget-header">
-                <h3>近期打卡</h3>
+                <h3>近期学习</h3>
                 <button
                   type="button"
-                  @click="activeTab = '打卡'"
+                  @click="activeTab = '学习记录'"
                 >
                   连续 {{ checkinStreak }} 天
                 </button>
@@ -928,10 +973,10 @@ onMounted(loadProfile);
                 </button>
               </div>
               <p
-                v-else
-                class="widget-empty"
-              >
-                暂无打卡记录
+              v-else
+              class="widget-empty"
+            >
+                暂无学习记录
               </p>
             </section>
 
@@ -952,14 +997,14 @@ onMounted(loadProfile);
         v-else
         class="profile-loading glass-card"
       >
-        <n-empty description="个人主页加载失败" />
+        <n-empty description="个人中心加载失败" />
       </div>
     </div>
 
     <NModal
       v-model:show="followsVisible"
       preset="card"
-      :title="followsTab === 'followers' ? '粉丝' : '关注'"
+      :title="followsTab === 'followers' ? '软件清单' : '收藏资源'"
       class="profile-modal"
       transform-origin="center"
       :style="{ width: '360px' }"
@@ -970,14 +1015,14 @@ onMounted(loadProfile);
           :class="{ active: followsTab === 'following' }"
           @click="goFollows('following')"
         >
-          关注
+          收藏资源
         </button>
         <button
           type="button"
           :class="{ active: followsTab === 'followers' }"
           @click="goFollows('followers')"
         >
-          粉丝
+          软件清单
         </button>
       </div>
       <div class="follow-list">
@@ -991,7 +1036,7 @@ onMounted(loadProfile);
           v-else-if="followUsers.length === 0"
           class="follow-empty"
         >
-          {{ followsTab === 'followers' ? '暂无粉丝' : '暂无关注' }}
+          {{ followsTab === 'followers' ? '暂无软件清单' : '暂无收藏资源' }}
         </article>
         <article
           v-for="followUser in followUsers"
@@ -1007,7 +1052,7 @@ onMounted(loadProfile);
           <span v-else>{{ followUser.nickname.charAt(0).toUpperCase() }}</span>
           <div>
             <strong>{{ followUser.nickname }}</strong>
-            <small>{{ [followUser.college, followUser.major].filter(Boolean).join(' · ') || followUser.bio || '校园学习者' }}</small>
+            <small>{{ [followUser.college, followUser.major].filter(Boolean).join(' · ') || followUser.bio || '知识库条目' }}</small>
           </div>
         </article>
       </div>
@@ -1016,23 +1061,23 @@ onMounted(loadProfile);
     <NModal
       v-model:show="likesVisible"
       preset="card"
-      title="获赞明细"
+      title="整理反馈"
       class="profile-modal"
       transform-origin="center"
       :style="{ width: '420px' }"
     >
       <div class="stat-summary">
-        <span>累计获赞</span>
+        <span>累计反馈</span>
         <strong>{{ formatCompactNumber(likeCount) }}</strong>
-        <p>统计当前个人主页帖子获得的点赞数。</p>
+        <p>统计当前个人中心资源条目的反馈数量。</p>
       </div>
       <div class="stat-list">
         <article
           v-if="likedPosts.length === 0"
           class="stat-empty"
         >
-          <strong>暂无获赞记录</strong>
-          <p>发布帖子并获得点赞后，会在这里展示明细。</p>
+          <strong>暂无反馈记录</strong>
+          <p>上传资源并获得反馈后，会在这里展示明细。</p>
         </article>
         <button
           v-for="post in likedPosts"
@@ -1044,9 +1089,9 @@ onMounted(loadProfile);
         >
           <span class="stat-item-copy">
             <strong>{{ postTitle(post) }}</strong>
-            <small>{{ formatTime(post.createdAt) }} · {{ post.commentCount }} 评论</small>
+            <small>{{ formatTime(post.createdAt) }} · {{ post.commentCount }} 条反馈</small>
           </span>
-          <span class="stat-item-value">{{ formatCompactNumber(post.likeCount) }} 赞</span>
+          <span class="stat-item-value">{{ formatCompactNumber(post.likeCount) }} 反馈</span>
         </button>
       </div>
     </NModal>
