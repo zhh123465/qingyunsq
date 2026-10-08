@@ -374,6 +374,10 @@ npm run dev              # 开发服务器(:3000，代理 /api /ws /uploads → 
 cd deploy
 cp .env.example .env     # 按 SECURITY.md 填写所有必填项
 bash install.sh
+
+# 仓库同步（当前主仓库是 qingyunsq，不是 origin）
+git push qingyunsq main   # → https://github.com/zhh123465/qingyunsq（public）
+git push origin main      # → https://github.com/zhh123465/campus（旧仓库，可选）
 ```
 
 ---
@@ -389,28 +393,31 @@ bash install.sh
 7. **API 文档生产默认关闭**（`SPRINGDOC_ENABLED=false` + DocAccessFilter + nginx 三重防护），不要为了调试在 prod 打开。
 8. **前端 token 无 `Bearer` 前缀**，存 `localStorage.token`；前端不注入租户头。
 9. 历史演进：**积分系统已移除**（别再引用 points 相关表/接口；`points_logs` 表在生产库残留只因 DROP 迁移早于 Flyway baseline 从未执行）。**微信小程序登录已真实可用**（`wechat-login`，首登自动建号 + 播种欢迎知识库，唯一键 `(tenant_id, wechat_openid)`）。**GitHub 登录已接通**（2026-07-12，授权码流程：`GET /auth/github/authorize-url` → GitHub 授权 → 302 回 `/login?code=..&state=..` → `POST /auth/github-login`；state 存 Redis 10 分钟防 CSRF；首登按 `(tenant_id, github_id)` 自动建号；**生效前提：`.env` 填 `GITHUB_CLIENT_ID/SECRET`**，GitHub OAuth App 的 callback 必须是 `https://www.qingyunsq.top/login`；海外出站走 `SOCIAL_PROXY_HOST/PORT`=host.docker.internal:7890）。**QQ 登录仍是无接线骨架**（`QqOAuthClient` 无 Controller，前端按钮提示"暂未开放"）。**智能体/插件市场已整体裁撤**（2026-07-12，勿再引用 /ai/agents、/ai/plugins）。
-10. **生产服务器**：Docker Compose 部署于 `/root/projects/campus/deploy/`，`docker compose` 命令可用。**MySQL 容器本机可达**（`docker exec deploy-mysql-1 mysql ...`），诊断数据问题直接连容器，不要假设数据库在远程。`deploy/.env` 含真实凭据，勿提交到 git。
-11. **1Panel**（端口 34813）管理本服务器运维，`1panel*`/`*.tar.gz` 已被 `.gitignore` 拦截防止误提交，但不要随意删除 1Panel 安装目录或停止其进程。
+10. **生产服务器**：Docker Compose 部署于 `/root/projects/campus/deploy/`，`docker compose` 命令可用。**MySQL 容器本机可达**（`docker exec deploy-mysql-1 mysql ...`），诊断数据问题直接连容器，不要假设数据库在远程。`deploy/.env` 含真实凭据，勿提交到 git；`deploy/nginx/ssl/` 含 qingyunsq.top 的 TLS **私钥**，两个仓库都是 **public**，已由 `.gitignore` 拦截（`deploy/nginx/ssl/`、`*.pem`、`*.key`）。
+11. **1Panel**（端口 34813）管理本服务器运维，`1panel*`/`quick_start.sh`/`*.tar.gz` 已被 `.gitignore` 拦截防止误提交（`quick_start.sh` 是 1Panel 官方安装脚本，不是本项目脚本），但不要随意删除 1Panel 安装目录或停止其进程。
 12. `rg` 不可用时用 `grep`/`find`；工作区常有未提交改动，**不要回滚不是你造成的改动**。
+13. **GitHub 出站必须走代理**（2026-10-08 实测）：直连 SSH 22 出海被限速到 ~100KiB/s（推 14MB 要数分钟），且本地 mihomo 节点**屏蔽 22 端口**（`nc -X connect` 到 :22 超时）。已在 `~/.ssh/config` 把 `github.com` 指到 GitHub 官方 443 入口：`HostName ssh.github.com` + `Port 443` + `ProxyCommand nc -X connect -x 127.0.0.1:7890 %h %p`（`ls-remote` 从数十秒降到 3 秒）。⚠️ mihomo 未运行时 GitHub 的 SSH 操作会全部失败，临时走直连用 `git -c core.sshCommand='ssh -p 22' ...`。容器内出站另有 `SOCIAL_PROXY_HOST/PORT` 与 `deploy/proxy-forwarder.py`（宿主 7890 → 容器可见的 7891）。
 
 ---
 
-## 13. 当前未提交改动概况（截至 2026-06-24，仅供参考，会变化）
+## 13. 仓库与工作区状态（截至 2026-10-08）
 
-> 以下为工作区累计改动。`agents.md` 与 `【6月24日Claude code代码检查】.md` 本身也是新增未追踪文件。
+> 本节记录**仓库同步状态**；历史工作区改动流水见 §14.2「近期已解决」。
 
-**来自 PR 开发的原改动**（`+864/-296` 行）：
-- 后端：`SaTokenConfig` / `MimeTypeValidator` / `SecurityStartupValidator` / `ResourceController` / `ResourceService` / `WechatMiniProgramClient` / `application.yml` 及对应测试。
-- 前端：资源详情/列表页改版、路由调整、新增 `FeaturePlaceholder.vue` / `resource-preview.ts` / PWA 文件。
+**仓库位置（两个都是 public 仓库）**
+- 本地工作区：`/root/projects/campus`（目录名沿用旧名，未随仓库更名）
+- `origin` = `git@github.com:zhh123465/campus.git` —— 旧仓库，`branch.main.remote=origin` 仍指向它
+- `qingyunsq` = `git@github.com:zhh123465/qingyunsq.git` —— **当前主仓库**，日常推送走这个 remote
+- ⚠️ 仓库公开，`.env` / TLS 私钥 / 含真实姓名的材料都不得入库（`.gitignore` 已拦截，见下）
 
-**Claude Code 追加的安全/卫生修复**（本日，详见检查报告）：
-- Bug 修复：`ResourceController.java` 游客 office 预览 500、租户名称乱码（`V20260624_01` 迁移）
-- 配置：`application.yml` 去硬编码 IP → env 占位、`docker-compose.yml` kkfileview 默认值修正、`.gitignore` 加 `1panel*/*.tar.gz/*.tgz/*.zip`
-- 依赖/优化：删 `frontend/package.json` 中 `socket.io-client`、`OssCompatService`/`MeiliSearchClient` 中 `ObjectMapper` 改 static final
-- 文档：`agent.md` 加废弃提示、`agents.md` 全面修正（基于生产实际部署）、`db/migrations/README.md` 补迁移说明
-- 回退：`backend/Dockerfile` 一度被改为 17-jre 后回退为 21-jre（线上实际运行 21）
+**2026-10-08 全量同步（提交 f5e494d，强推至 `qingyunsq/main`）**
+- 积压的全部工作区改动（293 文件，+31068/-19088）一次性提交：公告模块、learning 学习模块、AI 工作区、5 个 `AdminXxxController`、资源审核、GitHub 登录接通、搜索索引改直连（删 `SearchIndexEvent`/`SearchSyncListener`）、PWA 由 `vite-plugin-pwa` 改为自写 `sw.js`/`registerSW.js`
+- **`backend/src/main/resources/db/migration/` 29 个迁移首次入库**——此前只存在于 `db/migrations/` 手工镜像、从未被 git 跟踪，而 `flyway.locations=classpath:db/migration`，新克隆的仓库缺这套脚本无法自动迁移（两目录现已 29 vs 29 一致，改表仍须两边同步）
+- `.gitignore` 新增排除：`deploy/nginx/ssl/`（qingyunsq.top 的 **TLS 私钥**）、`/quick_start.sh`（实为 1Panel 安装脚本，非项目脚本）、根目录 `/*.png` `/*.pdf`（临时截图 + 大创申报/结题材料，含真实姓名）
+- 未入库但保留在磁盘：根目录 3 个 PDF、2 张调试截图、`1panel-v1.10.34-lts-linux-amd64/`（135MB）
+- ⚠️ `campus` 仓库未推（仍停在 a520f56），需要时另行 `git push origin main`
 
-> 以上改动均已编译验证（`mvn -o compile` 通过），但**未跑完整测试套件**（需 Docker/Testcontainers），提交前请本地 `mvn test`。
+**验证状态**：`mvn -o compile` 通过、`npm run build`（含 vue-tsc 类型检查）通过；**未跑 `mvn test`**（需 Docker/Testcontainers）。
 
 ---
 
