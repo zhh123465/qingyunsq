@@ -55,6 +55,7 @@ backend/_ust.log
 1panel*
 # 根目录的 quick_start.sh 实为 1Panel 官方安装脚本，不是本项目脚本
 /quick_start.sh
+*.tar
 *.tar.gz
 *.tgz
 *.zip
